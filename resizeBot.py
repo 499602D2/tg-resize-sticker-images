@@ -107,7 +107,7 @@ def statistics(update, context):
 
 def convert_img(update, context):
 	# log start
-	logging.info(f'Starting image conversion for {update.message.chat.id}...')
+	logging.info(f'[{update.message.chat.id}] Starting image conversion...')
 
 	# load img
 	photo = update.message.photo[-1]
@@ -122,7 +122,7 @@ def convert_img(update, context):
 	elif img.format == 'PNG':
 		pass
 	else:
-		logging.info(f'Image conversion failed for {update.message.chat.id}: not a jpg/png/webp!')
+		logging.info(f'[{update.message.chat.id}] Image conversion failed: not a jpg/png/webp!')
 		context.bot.send_message(text='⚠️ Error: file is not a jpg/png/webp')
 		return
 
@@ -209,7 +209,7 @@ def convert_img(update, context):
 	else:
 		rd.set('chats', str(update.message.chat.id))
 
-	logging.info(f'{update.message.chat.id} successfully converted an image!')
+	logging.info(f'[{update.message.chat.id}] Successfully converted image!')
 
 
 def sigterm_handler(signal, frame):
