@@ -33,6 +33,8 @@ def start(update, context):
 	reply_msg = f'''🖼 *Resize Image for Stickers v{VERSION}*
 
 	To resize an image to a sticker-ready format, just send it to this chat!
+
+	[This bot is open-source.](https://github.com/499602D2/tg-resize-sticker-images)
 	'''
 
 	# pull chat id, send message
@@ -42,7 +44,42 @@ def start(update, context):
 	logging.info(f'🌟 Bot added to a new chat! chat_id={chat_id}.')
 
 
+def help(update, context):
+	'''
+	Responds to /help command
+	'''
+	# construct message
+	reply_msg = '''🖼 To use the bot, simply send your image to this chat (jpg/png/webp).
+
+	Hint: you can also send multiple images at once!
+	'''
+
+	# pull chat id, send message
+	chat_id = update.message.chat.id
+	context.bot.send_message(chat_id, cleandoc(reply_msg), parse_mode='Markdown')
+
+	logging.info(f'🤖 Chat {chat_id} requested help.')
+
+
+def source(update, context):
+	'''
+	Responds to /source command
+	'''
+	# construct message
+	reply_msg = '''🐙 [Source on Github.](https://github.com/499602D2/tg-resize-sticker-images)
+	'''
+
+	# pull chat id, send message
+	chat_id = update.message.chat.id
+	context.bot.send_message(chat_id, cleandoc(reply_msg), parse_mode='Markdown')
+
+	logging.info(f'🐙 Chat {chat_id} requested Github link!')
+
+
 def statistics(update, context):
+	'''
+	Responds to /stats command
+	'''
 	if rd.exists('converted-imgs'):
 		imgs = int(rd.get('converted-imgs'))
 	else:
@@ -191,7 +228,8 @@ if __name__ == '__main__':
 
 	dispatcher.add_handler(MessageHandler(Filters.photo, callback=convert_img))
 	dispatcher.add_handler(CommandHandler(command=('start'), callback=start))
-	dispatcher.add_handler(CommandHandler(command=('statistics'), callback=statistics))
+	dispatcher.add_handler(CommandHandler(command=('source'), callback=source))
+	dispatcher.add_handler(CommandHandler(command=('stats'), callback=statistics))
 
 	# all up to date, start polling
 	updater.start_polling()
