@@ -44,7 +44,7 @@ def start(update, context):
 	logging.info(f'🌟 Bot added to a new chat! chat_id={chat_id}.')
 
 
-def help(update, context):
+def helpc(update, context):
 	'''
 	Responds to /help command
 	'''
@@ -229,6 +229,7 @@ if __name__ == '__main__':
 	dispatcher.add_handler(MessageHandler(Filters.photo, callback=convert_img))
 	dispatcher.add_handler(CommandHandler(command=('start'), callback=start))
 	dispatcher.add_handler(CommandHandler(command=('source'), callback=source))
+	dispatcher.add_handler(CommandHandler(command=('help'), callback=helpc))
 	dispatcher.add_handler(CommandHandler(command=('stats'), callback=statistics))
 
 	# all up to date, start polling
