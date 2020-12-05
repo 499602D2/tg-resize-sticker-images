@@ -142,6 +142,7 @@ def convert_img(update, context):
 	img.save(byte_arr, format='PNG', compress_level=0)
 
 	# compress if size > 512 KB (kibi, not kilo)
+	compression_failed = False
 	if byte_arr.tell() / 1024 > 512:
 		fsize = byte_arr.tell() / 1024
 		compression_level, optimize = 1, False
@@ -162,15 +163,22 @@ def convert_img(update, context):
 			logging.warning(f'\t{fsize:.2f} KB | clevel={compression_level}, optimize={optimize}')
 			compression_level += 1
 			if optimize:
+				if fsize >= 512:
+					compression_failed = True
 				break
 
 	# create telegram.InputFile object by reading raw bytes
 	byte_arr.seek(0)
 	img_file = InputFile(byte_arr)
 
+	image_caption = f"🖼 Here's your sticker-ready image ({w}x{h})! Forward this to @Stickers."
+	if compression_failed:
+		image_caption += '\n\n⚠️ Image compression failed (≥512 KB): '
+		image_caption += 'you must manually compress the image!'
+
 	context.bot.send_document(
 		chat_id=update.message.chat.id, document=img_file,
-		caption=f"🖼 Here's your sticker-ready image ({w}x{h})! Forward this to @Stickers.",
+		caption=image_caption,
 		filename=f'resized-image-{int(time.time())}.png')
 
 	# add +1 to stats
