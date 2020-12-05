@@ -3,23 +3,19 @@ import sys
 import time
 import io
 import signal
-
 import logging
-import coloredlogs
-import telegram
-import cursor
-import inspect
-import redis
 
+from inspect import cleandoc
 from datetime import datetime
-from datetime import timedelta
+
+import coloredlogs
+import cursor
+import redis
 
 from PIL import Image
 from resizeimage import resizeimage
-from telegram import ReplyKeyboardRemove, ForceReply, InputFile
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from telegram.ext import CallbackQueryHandler
 
 from utils import load_config, time_delta_to_legible_eta
 
@@ -41,7 +37,7 @@ def start(update, context):
 
 	# pull chat id, send message
 	chat_id = update.message.chat.id
-	context.bot.send_message(chat_id, inspect.cleandoc(reply_msg), parse_mode='Markdown')
+	context.bot.send_message(chat_id, cleandoc(reply_msg), parse_mode='Markdown')
 
 	logging.info(f'🌟 Bot added to a new chat! chat_id={chat_id}.')
 
@@ -68,10 +64,13 @@ def statistics(update, context):
 	'''
 
 	context.bot.send_message(
-		update.message.chat.id, inspect.cleandoc(msg), parse_mode='Markdown')
+		update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
 
 
 def convert_img(update, context):
+	# log start
+	logging.info(f'Starting image conversion for {update.message.chat.id}...')
+
 	# load img
 	photo = update.message.photo[-1]
 	photo_file = photo.get_file()
@@ -85,7 +84,8 @@ def convert_img(update, context):
 	elif img.format == 'PNG':
 		pass
 	else:
-		context.bot.send_message(text='⚠️ Error: file is a jpg/png/webp')
+		logging.info(f'Image conversion failed for {update.message.chat.id}: not a jpg/png/webp!')
+		context.bot.send_message(text='⚠️ Error: file is not a jpg/png/webp')
 		return
 
 	# read image dimensions
@@ -102,15 +102,38 @@ def convert_img(update, context):
 
 	# save image to buffer
 	byte_arr = io.BytesIO()
-	img.save(byte_arr, format='PNG')
-	byte_arr.seek(0)
+	img.save(byte_arr, format='PNG', compress_level=0)
 
-	# read from buffer, send
+	# compress if size > 512 KB (kibi, not kilo)
+	if byte_arr.tell() / 1024 > 512:
+		fsize = byte_arr.tell() / 1024
+		compression_level, optimize = 1, False
+
+		logging.warning(f'Image is too large ({fsize:.2f} KB): compressing...')
+		while fsize > 512:
+			if compression_level > 9:
+				optimize = True
+
+			temp = io.BytesIO()
+			img.save(
+				temp, format='PNG', optimize=optimize,
+				compression_level=compression_level)
+
+			fsize = temp.tell() / 1024
+			byte_arr = temp
+
+			logging.warning(f'\t{fsize:.2f} KB | clevel={compression_level}, optimize={optimize}')
+			compression_level += 1
+			if optimize:
+				break
+
+	# create telegram.InputFile object by reading raw bytes
+	byte_arr.seek(0)
 	img_file = InputFile(byte_arr)
 
 	context.bot.send_document(
 		chat_id=update.message.chat.id, document=img_file,
-		caption=f"🖼 Here's your sticker-ready image! ({w}x{h})",
+		caption=f"🖼 Here's your sticker-ready image ({w}x{h})! Forward this to @Stickers.",
 		filename=f'resized-image-{int(time.time())}.png')
 
 	# add +1 to stats
@@ -129,6 +152,7 @@ def convert_img(update, context):
 
 	logging.info(f'{update.message.chat.id} successfully converted an image!')
 
+
 def sigterm_handler(signal, frame):
 	'''
 	Logs program run time when we get sigterm.
@@ -137,8 +161,9 @@ def sigterm_handler(signal, frame):
 	logging.info(f'Signal: {signal}, frame: {frame}.')
 	sys.exit(0)
 
+
 if __name__ == '__main__':
-	VERSION = '1.1'
+	VERSION = '1.2'
 	DATA_DIR = 'data'
 	DEBUG = True
 
@@ -152,7 +177,6 @@ if __name__ == '__main__':
 		filename=log, level=logging.DEBUG, format='%(asctime)s %(message)s', datefmt='%d/%m/%Y %H:%M:%S')
 
 	# disable logging for urllib and requests because jesus fuck they make a lot of spam
-	logging.getLogger('requests').setLevel(logging.CRITICAL)
 	logging.getLogger('urllib3').setLevel(logging.CRITICAL)
 	logging.getLogger('chardet.charsetprober').setLevel(logging.CRITICAL)
 	logging.getLogger('telegram').setLevel(logging.ERROR)
