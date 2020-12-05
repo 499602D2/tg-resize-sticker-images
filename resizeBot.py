@@ -131,9 +131,17 @@ def convert_img(update, context):
 
 	# resize larger side to 512
 	if w >= h:
-		img = resizeimage.resize_width(img, 512)
+		try:
+			img = resizeimage.resize_width(img, 512)
+		except Exception as error:
+			logging.exception(f'⚠️ Error resizing image width: w={w}, h={h}')
+			logging.debug(f'Error type: {type(error)}')
 	else:
-		img = resizeimage.resize_height(img, 512)
+		try:
+			img = resizeimage.resize_height(img, 512)
+		except Exception as error:
+			logging.exception(f'⚠️ Error resizing image height: w={w}, h={h}')
+			logging.debug(f'Error type: {type(error)}')
 
 	# read width, height of new image
 	w, h = img.size
@@ -171,7 +179,7 @@ def convert_img(update, context):
 	# generate a random filename
 	random_hash = sha1(
 		str(time.time()).encode('utf-8')).hexdigest()[0:6]
-	random_filename = f'image-{random_hash}'
+	random_filename = f'image-{random_hash}.png'
 
 	# create telegram.InputFile object by reading raw bytes
 	byte_arr.seek(0)
