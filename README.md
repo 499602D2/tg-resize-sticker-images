@@ -1,2 +1,2 @@
-# tg-resizeImgForStickers
+# tg-resize-sticker-images
  A tiny bot that converts images so they can be turned into tg stickers.
