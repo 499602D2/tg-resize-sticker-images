@@ -173,6 +173,9 @@ def convert_img(update, context, img_bytes, ftype):
 			img = img.resize((int(w*h_res_factor), 512), resample=Image.NEAREST)
 			upscaled = True
 
+	if upscaled:
+		logging.info(f'\tImage upscaled due to small size ({w}x{h}): user will be warned')
+
 	# read width, height of new image
 	w, h = img.size
 
