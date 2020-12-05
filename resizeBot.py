@@ -5,6 +5,7 @@ import io
 import signal
 import logging
 
+from hashlib import sha1
 from inspect import cleandoc
 from datetime import datetime
 
@@ -167,9 +168,14 @@ def convert_img(update, context):
 					compression_failed = True
 				break
 
+	# generate a random filename
+	random_hash = sha1(
+		str(time.time()).encode('utf-8')).hexdigest()[0:6]
+	random_filename = f'image-{random_hash}'
+
 	# create telegram.InputFile object by reading raw bytes
 	byte_arr.seek(0)
-	img_file = InputFile(byte_arr)
+	img_file = InputFile(byte_arr, filename=random_filename)
 
 	image_caption = f"🖼 Here's your sticker-ready image ({w}x{h})! Forward this to @Stickers."
 	if compression_failed:
