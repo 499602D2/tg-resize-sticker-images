@@ -15,7 +15,7 @@ import redis
 
 from PIL import Image
 from resizeimage import resizeimage
-from telegram import InputFile
+from telegram import InputFile, File
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 from utils import load_config, time_delta_to_legible_eta
@@ -105,16 +105,39 @@ def statistics(update, context):
 		update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
 
 
-def convert_img(update, context):
-	# log start
-	logging.info(f'[{update.message.chat.id}] Starting image conversion...')
+def document_to_bytearray(update, context):
+	'''
+	Handle uncompressed images sent to the bot
+	'''
+	# load file, download as byte array
+	file = update.message.document.get_file()
+	img_bytes = file.download_as_bytearray()
 
+	convert_img(
+		update=update, context=context,
+		img_bytes=img_bytes, ftype='File')
+
+
+def photo_to_bytearray(update, context):
+	'''
+	Handle compressed images sent to the bot
+	'''
 	# load img
 	photo = update.message.photo[-1]
 	photo_file = photo.get_file()
-
-	# write to byte array, open
 	img_bytes = photo_file.download_as_bytearray()
+
+	# send byte array to convert_imt
+	convert_img(
+		update=update, context=context,
+		img_bytes=img_bytes, ftype='Photo')
+
+
+def convert_img(update, context, img_bytes, ftype):
+	# log start
+	logging.info(f'[{update.message.chat.id}] {ftype} loaded: starting image conversion...')
+
+	# load image
 	img = Image.open(io.BytesIO(img_bytes))
 
 	if img.format in ('JPEG', 'WEBP'):
@@ -242,13 +265,21 @@ if __name__ == '__main__':
 	logging.getLogger('telegram.bot').setLevel(logging.ERROR)
 	logging.getLogger('telegram.ext.updater').setLevel(logging.ERROR)
 	logging.getLogger('telegram.vendor').setLevel(logging.ERROR)
+	logging.getLogger('PIL.PngImagePlugin').setLevel(logging.ERROR)
 	logging.getLogger('telegram.error.TelegramError').setLevel(logging.ERROR)
 	coloredlogs.install(level='DEBUG')
 
 	# get the dispatcher to register handlers
 	dispatcher = updater.dispatcher
 
-	dispatcher.add_handler(MessageHandler(Filters.photo, callback=convert_img))
+	# handle pre-compressed photos and files
+	dispatcher.add_handler(
+		MessageHandler(Filters.photo, callback=photo_to_bytearray))
+	dispatcher.add_handler(
+		MessageHandler(
+			Filters.document.category("image") & ~Filters.photo, callback=document_to_bytearray))
+
+	# handle commands
 	dispatcher.add_handler(CommandHandler(command=('start'), callback=start))
 	dispatcher.add_handler(CommandHandler(command=('source'), callback=source))
 	dispatcher.add_handler(CommandHandler(command=('help'), callback=helpc))
