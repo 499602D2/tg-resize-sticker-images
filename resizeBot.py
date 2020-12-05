@@ -153,18 +153,25 @@ def convert_img(update, context, img_bytes, ftype):
 	w, h = img.size
 
 	# resize larger side to 512
+	upscaled = False
 	if w >= h:
 		try:
 			img = resizeimage.resize_width(img, 512)
 		except Exception as error:
-			logging.exception(f'⚠️ Error resizing image width: w={w}, h={h}')
-			logging.debug(f'Error type: {type(error)}')
+			# error: image width is probably smaller than 512 px
+			# do a linear resize
+			w_res_factor = 512/w
+			img = img.resize((512, int(h*w_res_factor)), resample=Image.NEAREST)
+			upscaled = True
 	else:
 		try:
 			img = resizeimage.resize_height(img, 512)
 		except Exception as error:
-			logging.exception(f'⚠️ Error resizing image height: w={w}, h={h}')
-			logging.debug(f'Error type: {type(error)}')
+			# error: image height is probably smaller than 512 px
+			# do a linear resize
+			h_res_factor = 512/h
+			img = img.resize((int(w*h_res_factor), 512), resample=Image.NEAREST)
+			upscaled = True
 
 	# read width, height of new image
 	w, h = img.size
@@ -212,6 +219,9 @@ def convert_img(update, context, img_bytes, ftype):
 	if compression_failed:
 		image_caption += '\n\n⚠️ Image compression failed (≥512 KB): '
 		image_caption += 'you must manually compress the image!'
+	elif upscaled:
+		image_caption += '\n\n⚠️ Image upscaled! Quality may have been lost: '
+		image_caption += 'consider using a larger image.'
 
 	context.bot.send_document(
 		chat_id=update.message.chat.id, document=img_file,
