@@ -278,7 +278,7 @@ if __name__ == '__main__':
 	logging.getLogger('telegram.bot').setLevel(logging.ERROR)
 	logging.getLogger('telegram.ext.updater').setLevel(logging.ERROR)
 	logging.getLogger('telegram.vendor').setLevel(logging.ERROR)
-	logging.getLogger('PIL.PngImagePlugin').setLevel(logging.ERROR)
+	logging.getLogger('PIL').setLevel(logging.ERROR)
 	logging.getLogger('telegram.error.TelegramError').setLevel(logging.ERROR)
 	coloredlogs.install(level='DEBUG')
 
