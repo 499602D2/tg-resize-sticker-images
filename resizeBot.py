@@ -135,7 +135,7 @@ def photo_to_bytearray(update, context):
 
 def convert_img(update, context, img_bytes, ftype):
 	# log start
-	logging.info(f'[{update.message.chat.id}] {ftype} loaded: starting image conversion...')
+	logging.info(f'🖼 [{update.message.chat.id}] {ftype} loaded: starting image conversion...')
 
 	# load image
 	img = Image.open(io.BytesIO(img_bytes))
@@ -145,7 +145,7 @@ def convert_img(update, context, img_bytes, ftype):
 	elif img.format == 'PNG':
 		pass
 	else:
-		logging.info(f'[{update.message.chat.id}] Image conversion failed: not a jpg/png/webp!')
+		logging.info(f'\t[{update.message.chat.id}] Image conversion failed: not a jpg/png/webp!')
 		context.bot.send_message(text='⚠️ Error: file is not a jpg/png/webp')
 		return
 
@@ -189,7 +189,7 @@ def convert_img(update, context, img_bytes, ftype):
 		fsize = byte_arr.tell() / 1024
 		compression_level, optimize = 1, False
 
-		logging.warning(f'Image is too large ({fsize:.2f} KB): compressing...')
+		logging.warning(f'\tImage is too large ({fsize:.2f} KB): compressing...')
 		while fsize > 512:
 			if compression_level > 9:
 				optimize = True
@@ -202,7 +202,7 @@ def convert_img(update, context, img_bytes, ftype):
 			fsize = temp.tell() / 1024
 			byte_arr = temp
 
-			logging.warning(f'\t{fsize:.2f} KB | clevel={compression_level}, optimize={optimize}')
+			logging.warning(f'\t\t{fsize:.2f} KB | clevel={compression_level}, optimize={optimize}')
 			compression_level += 1
 			if optimize:
 				if fsize >= 512:
@@ -245,7 +245,7 @@ def convert_img(update, context, img_bytes, ftype):
 	else:
 		rd.set('chats', str(update.message.chat.id))
 
-	logging.info(f'[{update.message.chat.id}] Successfully converted image!')
+	logging.info(f'\t[{update.message.chat.id}] Successfully converted image!')
 
 
 def sigterm_handler(signal, frame):
@@ -258,7 +258,7 @@ def sigterm_handler(signal, frame):
 
 
 if __name__ == '__main__':
-	VERSION = '1.2'
+	VERSION = '1.3'
 	DATA_DIR = 'data'
 	DEBUG = True
 
