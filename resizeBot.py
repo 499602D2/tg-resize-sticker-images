@@ -192,7 +192,7 @@ def convert_img(update, context, img_bytes, ftype):
 		logging.warning(f'\tImage is too large ({fsize:.2f} KB): compressing...')
 		while fsize > 512:
 			if compression_level > 9:
-				optimize = True
+				optimize, compression_level = True, 9
 
 			temp = io.BytesIO()
 			img.save(
@@ -258,7 +258,7 @@ def sigterm_handler(signal, frame):
 
 
 if __name__ == '__main__':
-	VERSION = '1.3'
+	VERSION = '1.3.1'
 	DATA_DIR = 'data'
 	DEBUG = True
 
