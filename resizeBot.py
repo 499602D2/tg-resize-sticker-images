@@ -13,7 +13,7 @@ import coloredlogs
 import cursor
 import redis
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from resizeimage import resizeimage
 from telegram import InputFile, File
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
@@ -138,7 +138,11 @@ def convert_img(update, context, img_bytes, ftype):
 	logging.info(f'🖼 [{update.message.chat.id}] {ftype} loaded: starting image conversion...')
 
 	# load image
-	img = Image.open(io.BytesIO(img_bytes))
+	try:
+		img = Image.open(io.BytesIO(img_bytes))
+	except UnidentifiedImageError:
+		logging.error(f'\t[{update.message.chat.id}] Unknown image type: notifying user.')
+		context.bot.send_message(text='⚠️ Error: file is not a jpg/png/webp')
 
 	if img.format in ('JPEG', 'WEBP'):
 		img = img.convert('RGB')
@@ -258,7 +262,7 @@ def sigterm_handler(signal, frame):
 
 
 if __name__ == '__main__':
-	VERSION = '1.3.1'
+	VERSION = '1.3.2'
 	DATA_DIR = 'data'
 	DEBUG = True
 
