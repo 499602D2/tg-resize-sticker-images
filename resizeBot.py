@@ -339,7 +339,7 @@ if __name__ == '__main__':
 
 	dispatcher.add_handler(
 		MessageHandler(
-			Filters.document.file_extension("webp") & ~Filters.photo,
+			Filters.document.file_extension("webp"),
 			callback=document_to_bytearray))
 
 	# handle commands
