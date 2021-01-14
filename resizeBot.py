@@ -334,8 +334,13 @@ if __name__ == '__main__':
 	# handle files in a separate function
 	dispatcher.add_handler(
 		MessageHandler(
-			Filters.document.category("image") & ~Filters.photo &
-			Filters.document.file_extension("webp"), callback=document_to_bytearray))
+			Filters.document.category("image") & ~Filters.photo,
+			callback=document_to_bytearray))
+
+	dispatcher.add_handler(
+		MessageHandler(
+			Filters.document.file_extension("webp") & ~Filters.photo,
+			callback=document_to_bytearray))
 
 	# handle commands
 	dispatcher.add_handler(CommandHandler(command=('start'), callback=start))
