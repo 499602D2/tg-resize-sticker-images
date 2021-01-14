@@ -12,6 +12,7 @@ from datetime import datetime
 import coloredlogs
 import cursor
 import redis
+import telegram
 
 from PIL import Image, UnidentifiedImageError
 from resizeimage import resizeimage
@@ -101,8 +102,7 @@ def statistics(update, context):
 	Bot started {runtime} ago
 	'''
 
-	context.bot.send_message(
-		update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
+	context.bot.send_message(update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
 
 
 def document_to_bytearray(update, context):
@@ -110,7 +110,20 @@ def document_to_bytearray(update, context):
 	Handle uncompressed images sent to the bot
 	'''
 	# load file, download as byte array
-	file = update.message.document.get_file()
+	try:
+		file = update.message.document.get_file()
+	except telegram.error.BadRequest as e:
+		msg = f'⚠️ Telegram was unable to download your file: please try again. Cause: {e}'
+		context.bot.send_message(update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
+		return
+	except telegram.error.TimedOut:
+		try:
+			file = update.message.document.get_file()
+		except Exception as e:
+			msg = f'⚠️ Telegram was unable to download your file: please try again later. Cause: {e}'
+			context.bot.send_message(update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
+			return
+
 	img_bytes = file.download_as_bytearray()
 
 	convert_img(
@@ -124,7 +137,21 @@ def photo_to_bytearray(update, context):
 	'''
 	# load img
 	photo = update.message.photo[-1]
-	photo_file = photo.get_file()
+
+	try:
+		photo_file = photo.get_file()
+	except telegram.error.BadRequest as e:
+		msg = f'⚠️ Telegram was unable to download your photo: please try again. Cause: {e}'
+		context.bot.send_message(update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
+		return
+	except telegram.error.TimedOut as e:
+		try:
+			photo_file = photo.get_file()
+		except Exception as e:
+			msg = f'⚠️ Telegram was unable to download your photo: please try again. Cause: {e}'
+			context.bot.send_message(update.message.chat.id, cleandoc(msg), parse_mode='Markdown')
+			return
+
 	img_bytes = photo_file.download_as_bytearray()
 
 	# send byte array to convert_imt
@@ -134,6 +161,10 @@ def photo_to_bytearray(update, context):
 
 
 def convert_img(update, context, img_bytes, ftype):
+	'''
+	Converts the image to the desired format, e.g. to a png-formatted image
+	with a 512 pixel wide longest side.
+	'''
 	# log start
 	logging.info(f'🖼 [{update.message.chat.id}] {ftype} loaded: starting image conversion...')
 
@@ -142,7 +173,10 @@ def convert_img(update, context, img_bytes, ftype):
 		img = Image.open(io.BytesIO(img_bytes))
 	except UnidentifiedImageError:
 		logging.error(f'\t[{update.message.chat.id}] Unknown image type: notifying user.')
-		context.bot.send_message(text='⚠️ Error: file is not a jpg/png/webp')
+
+		context.bot.send_message(
+			text='⚠️ Error: file is not a jpg/png/webp',
+			chat_id=update.message.chat.id)
 
 	if img.format in ('JPEG', 'WEBP'):
 		img = img.convert('RGB')
@@ -150,7 +184,9 @@ def convert_img(update, context, img_bytes, ftype):
 		pass
 	else:
 		logging.info(f'\t[{update.message.chat.id}] Image conversion failed: not a jpg/png/webp!')
-		context.bot.send_message(text='⚠️ Error: file is not a jpg/png/webp')
+		context.bot.send_message(
+			text='⚠️ Error: file is not a jpg/png/webp',
+			chat_id=update.message.chat.id)
 		return
 
 	# read image dimensions
@@ -262,7 +298,7 @@ def sigterm_handler(signal, frame):
 
 
 if __name__ == '__main__':
-	VERSION = '1.3.2'
+	VERSION = '1.3.3'
 	DATA_DIR = 'data'
 	DEBUG = True
 
@@ -284,6 +320,7 @@ if __name__ == '__main__':
 	logging.getLogger('telegram.vendor').setLevel(logging.ERROR)
 	logging.getLogger('PIL').setLevel(logging.ERROR)
 	logging.getLogger('telegram.error.TelegramError').setLevel(logging.ERROR)
+	logging.getLogger('telegram.error.NetworkError').setLevel(logging.ERROR)
 	coloredlogs.install(level='DEBUG')
 
 	# get the dispatcher to register handlers
