@@ -326,12 +326,17 @@ if __name__ == '__main__':
 	# get the dispatcher to register handlers
 	dispatcher = updater.dispatcher
 
-	# handle pre-compressed photos and files
-	dispatcher.add_handler(
-		MessageHandler(Filters.photo, callback=photo_to_bytearray))
+	# handle pre-compressed photos
 	dispatcher.add_handler(
 		MessageHandler(
-			Filters.document.category("image") & ~Filters.photo, callback=document_to_bytearray))
+			Filters.photo, callback=photo_to_bytearray))
+
+	# handle files in a separate function
+	dispatcher.add_handler(
+		MessageHandler(
+			Filters.document.category("image") & ~Filters.photo,
+			Filters.document.file_extension("webp"),
+			callback=document_to_bytearray))
 
 	# handle commands
 	dispatcher.add_handler(CommandHandler(command=('start'), callback=start))
