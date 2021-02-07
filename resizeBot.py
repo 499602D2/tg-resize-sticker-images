@@ -299,7 +299,7 @@ def sigterm_handler(signal, frame):
 
 if __name__ == '__main__':
 	VERSION = '1.3.3'
-	DATA_DIR = 'data'
+	DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 	DEBUG = True
 
 	# load config, load bot
