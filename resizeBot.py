@@ -376,6 +376,7 @@ if __name__ == '__main__':
 			# on exit, show cursor as otherwise it'll stay hidden
 			cursor.show()
 			logging.info('Ending...')
+			updater.stop()
 	else:
 		while True:
 			time.sleep(10)
