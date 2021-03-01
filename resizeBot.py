@@ -362,21 +362,20 @@ if __name__ == '__main__':
 	signal.signal(signal.SIGTERM, sigterm_handler)
 
 	# hide cursor for pretty print
-	if not DEBUG:
-		cursor.hide()
-		try:
+	try:
+		if not DEBUG:
+			cursor.hide()
 			while True:
 				for char in ('⠷', '⠯', '⠟', '⠻', '⠽', '⠾'):
 					sys.stdout.write('%s\r' % '  Connected to Telegram! To quit: ctrl + c.')
 					sys.stdout.write('\033[92m%s\r\033[0m' % char)
 					sys.stdout.flush()
 					time.sleep(0.1)
-
-		except KeyboardInterrupt:
-			# on exit, show cursor as otherwise it'll stay hidden
-			cursor.show()
-			logging.info('Ending...')
-			updater.stop()
-	else:
-		while True:
-			time.sleep(10)
+		else:
+			while True:
+				time.sleep(10)
+	except KeyboardInterrupt:
+		# on exit, show cursor as otherwise it'll stay hidden
+		cursor.show()
+		logging.info('Ending...')
+		updater.stop()
