@@ -266,10 +266,22 @@ def convert_img(update, context, img_bytes, ftype):
 		image_caption += '\n\n⚠️ Image upscaled! Quality may have been lost: '
 		image_caption += 'consider using a larger image.'
 
-	context.bot.send_document(
-		chat_id=update.message.chat.id, document=img_file,
-		caption=image_caption,
-		filename=f'resized-image-{int(time.time())}.png')
+	sent = False
+	while not sent:
+		try:
+			context.bot.send_document(
+				chat_id=update.message.chat.id, document=img_file,
+				caption=image_caption,
+				filename=f'resized-image-{int(time.time())}.png'
+			)
+
+			sent = True
+		except telegram.error.TimedOut:
+			logging.warning('\tError sending: timed out... Trying again in 2 seconds.')
+			time.sleep(2)
+		except Exception as error:
+			logging.exception(f'Error sending document: {error}.')
+			return
 
 	# add +1 to stats
 	if rd.exists('converted-imgs'):
