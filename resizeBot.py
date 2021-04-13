@@ -97,8 +97,8 @@ def statistics(update, context):
 	runtime = time_delta_to_legible_eta(time_delta=sec_running, full_accuracy=False)
 
 	msg = f'''📊 *Bot statistics*
-	Images converted: {imgs}
-	Unique chats seen: {chats}
+	Images converted: {imgs:,}
+	Unique chats seen: {chats:,}
 	Bot started {runtime} ago
 	'''
 
