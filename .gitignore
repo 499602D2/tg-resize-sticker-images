@@ -4,3 +4,4 @@ __pycache__/utils.cpython-38.pyc
 data/log-file.log
 .DS_Store
 Go/src/botConfig.json
+Go/src/log-file.log
