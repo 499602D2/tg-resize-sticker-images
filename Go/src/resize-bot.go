@@ -177,6 +177,7 @@ func updateUniqueStat(uid *int, config *Config) {
 
 type Config struct {
 	Token 			string
+	Owner			int
 	StatConverted 	int
 	StatUniqueChats	int
 	StatStarted		int64
@@ -210,6 +211,7 @@ func loadConfig() Config {
 		// Create, marshal
 		config := Config {
 			Token: botToken,
+			Owner: 0,
 			StatConverted: 0,
 			StatUniqueChats: 0,
 			StatStarted: time.Now().Unix(),
@@ -284,14 +286,20 @@ func main() {
 	bot.Handle("/start", func(message *tb.Message) {
 		startMessage := "🖼 Hi there! To use the bot, simply send an image to this chat (jpg/png)."
 		bot.Send(message.Sender, startMessage)
-		log.Println("🌟", message.Sender.ID, "bot added to new chat!")
+
+		if message.Sender.ID != config.Owner {
+			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
+		}
 	})
 
 	// Command handler for /help
 	bot.Handle("/help", func(message *tb.Message) {
 		helpMessage := "🖼 To use the bot, simply send your image to this chat (jpg/png)!"
 		bot.Send(message.Sender, helpMessage)
-		log.Println("🙋‍♂️", message.Sender.ID, "requested help!")
+		
+		if message.Sender.ID != config.Owner {
+			log.Println("🙋‍♂️", message.Sender.ID, "requested help!")
+		}
 	})
 
 	// Keep track of the last chat to convert an image;
@@ -320,7 +328,10 @@ func main() {
 		)
 
 		bot.Send(message.Sender, msg, &sopts)
-		log.Println("📊", message.Sender.ID, "requested to view stats!")
+
+		if message.Sender.ID != config.Owner {
+			log.Println("📊", message.Sender.ID, "requested to view stats!")
+		}
 	})
 
 	// Register photo handler
@@ -334,7 +345,10 @@ func main() {
 		} else {
 			sendDocument(bot, message, photo, imgCaption)
 			config.StatConverted += 1
-			log.Println("🖼", message.Sender.ID, "successfully converted an image!")
+
+			if message.Sender.ID != config.Owner {
+				log.Println("🖼", message.Sender.ID, "successfully converted an image!")
+			}
 		}
 
 		// Update stat for count of unique chats in a goroutine
@@ -355,7 +369,10 @@ func main() {
 		} else {
 			sendDocument(bot, message, photo, imgCaption)
 			config.StatConverted += 1
-			log.Println("🖼", message.Sender.ID, "successfully converted an image!")
+
+			if message.Sender.ID != config.Owner {
+				log.Println("🖼", message.Sender.ID, "successfully converted an image!")
+			}
 		}
 
 		// Update stat for count of unique chats in a goroutine
