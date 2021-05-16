@@ -249,8 +249,37 @@ func loadConfig() Config {
 	return config
 }
 
+func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
+	// main stats
+	msg := fmt.Sprintf(
+		"📊 *Bot statistics*\nImages converted: %s\nUnique users seen: %s",
+		humanize.Comma(int64(config.StatConverted)),
+		humanize.Comma(int64(config.StatUniqueChats)),
+	)
+
+	// server info
+	msg += fmt.Sprintf("\n\n*🎛 Server information*\nBot started %s",
+		humanize.RelTime(time.Unix(config.StatStarted, 0), time.Now(), "ago", "ago"),
+	)
+
+	// Vnum, link
+	msg += fmt.Sprintf(
+		"\nRunning version [%s](https://github.com/499602D2/tg-resize-sticker-images)",
+		vnum,
+	)
+
+	// Construct keyboard for refresh functionality
+	kb := [][]tb.InlineButton{{tb.InlineButton{ Text: "🔄 Refresh statistics", Data: "stats/refresh" }}}
+	rplm := tb.ReplyMarkup{ InlineKeyboard: kb }
+
+	// Add Markdown parsing for a pretty link embed + keyboard
+	sopts := tb.SendOptions{ ParseMode: "Markdown", ReplyMarkup: &rplm }
+
+	return msg, sopts
+}
+
 func main() {
-	const vnum string = "2020.5.16"
+	const vnum string = "2020.5.17"
 
 	// Set-up logging
 	logf, err := os.OpenFile("log-file.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -308,25 +337,7 @@ func main() {
 
 	// Command handler for /stats
 	bot.Handle("/stats", func(message *tb.Message) {
-		msg := fmt.Sprintf(
-			"📊 *Bot statistics*\nImages converted: %s\nUnique users seen: %s",
-			humanize.Comma(int64(config.StatConverted)),
-			humanize.Comma(int64(config.StatUniqueChats)),
-		)
-
-		msg += fmt.Sprintf("\n\n*🎛 Server information*\nBot started %s",
-			humanize.RelTime(time.Unix(config.StatStarted, 0), time.Now(), "ago", "ago"),
-		)
-
-		// Add Markdown parsing for a pretty link embed
-		sopts := tb.SendOptions{ ParseMode: "Markdown" }
-
-		// Add vnum, link
-		msg += fmt.Sprintf(
-			"\nRunning version [%s](https://github.com/499602D2/tg-resize-sticker-images)",
-			vnum,
-		)
-
+		msg, sopts := buildStatsMsg(&config, vnum)
 		bot.Send(message.Sender, msg, &sopts)
 
 		if message.Sender.ID != config.Owner {
@@ -379,6 +390,24 @@ func main() {
 		if message.Sender.ID != lastUser {
 			go updateUniqueStat(&message.Sender.ID, &config)
 			lastUser = message.Sender.ID
+		}
+	})
+
+	// Register handler for incoming callback queries (i.e. stats refresh)
+	bot.Handle(tb.OnCallback, func(cb *tb.Callback) {
+		if cb.Data == "stats/refresh" {
+			msg, sopts := buildStatsMsg(&config, vnum)
+			bot.Edit(cb.Message, msg, &sopts)
+
+			resp := tb.CallbackResponse{
+				CallbackID: cb.ID,
+				Text: "🔄 Statistics refreshed!",
+				ShowAlert: false,
+			}
+
+			bot.Respond(cb, &resp)
+		} else {
+			log.Println("⚠️ Invalid callback data received:", cb.Data)
 		}
 	})
 
