@@ -309,9 +309,9 @@ func main() {
 	// Command handler for /stats
 	bot.Handle("/stats", func(message *tb.Message) {
 		msg := fmt.Sprintf(
-			"📊 *Bot statistics*\nImages converted: %d\nUnique users seen: %d",
-			config.StatConverted,
-			config.StatUniqueChats,
+			"📊 *Bot statistics*\nImages converted: %s\nUnique users seen: %s",
+			humanize.Comma(config.StatConverted),
+			humanize.Comma(config.StatUniqueChats),
 		)
 
 		msg += fmt.Sprintf("\n\n*🎛 Server information*\nBot started %s",
