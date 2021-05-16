@@ -5,3 +5,4 @@ data/log-file.log
 .DS_Store
 Go/src/botConfig.json
 Go/src/log-file.log
+Go/src/src
