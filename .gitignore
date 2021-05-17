@@ -6,3 +6,4 @@ data/log-file.log
 Go/src/botConfig.json
 Go/src/log-file.log
 Go/src/src
+.vscode/launch.json
