@@ -5,22 +5,22 @@ golang rewrite of the telegram sticker resize bot python program.
 package main
 
 import (
-	"fmt"
-	"log"
-	"time"
 	"bytes"
+	"fmt"
 	"io"
+	"log"
 	"sort"
+	"time"
 
-	"os"
 	"bufio"
-	"strings"
-	"io/ioutil"
 	"encoding/json"
+	"io/ioutil"
+	"os"
+	"strings"
 
-	"github.com/go-co-op/gocron"
-	"github.com/dustin/go-humanize"
 	"github.com/davidbyttow/govips/v2/vips"
+	"github.com/dustin/go-humanize"
+	"github.com/go-co-op/gocron"
 	tb "gopkg.in/tucnak/telebot.v2"
 )
 
@@ -62,9 +62,9 @@ func resizeImage(imgBytes []byte) ([]byte, string, error) {
 	// Increment compression ratio if size is too large
 	for {
 		pngParams := vips.PngExportParams{
-			StripMetadata:	true,
-			Compression:   	compression,
-			Interlace:     	false,
+			StripMetadata: true,
+			Compression:   compression,
+			Interlace:     false,
 		}
 
 		// encode as png into a new buffer
@@ -79,11 +79,13 @@ func resizeImage(imgBytes []byte) ([]byte, string, error) {
 		}
 
 		// check filesize is within limits (max. 512 KB)
-		if len(pngBuff) / 1024 >= 512 {
+		if len(pngBuff)/1024 >= 512 {
 			if compression < 10 {
-				compression++; continue
+				compression++
+				continue
 			} else {
-				compressionFailed = true; break
+				compressionFailed = true
+				break
 			}
 		} else {
 			break
@@ -109,7 +111,8 @@ func resizeImage(imgBytes []byte) ([]byte, string, error) {
 
 func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
 	// Get file from tg servers
-	var err error; var file io.ReadCloser
+	var err error
+	var file io.ReadCloser
 	if mediaType == "photo" {
 		file, err = bot.GetFile(&message.Photo.File)
 	} else {
@@ -130,14 +133,14 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
 func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) {
 	// Send as a document: create object
 	doc := tb.Document{
-		File: 		tb.FromReader(bytes.NewReader(photo)),
-		Caption: 	imgCaption,
-		MIME: 		"image/png",
-		FileName: 	fmt.Sprintf("resized-image-%d.png", time.Now().Unix()),
+		File:     tb.FromReader(bytes.NewReader(photo)),
+		Caption:  imgCaption,
+		MIME:     "image/png",
+		FileName: fmt.Sprintf("resized-image-%d.png", time.Now().Unix()),
 	}
 
 	// Disable notifications
-	sendOpts := tb.SendOptions{ DisableNotification: true, }
+	sendOpts := tb.SendOptions{DisableNotification: true}
 
 	// Send
 	_, err := doc.Send(bot, message.Sender, &sendOpts)
@@ -162,7 +165,7 @@ func updateUniqueStat(uid *int, config *Config) {
 			config.UniqueUsers = append(config.UniqueUsers, *uid)
 		} else if i == 0 {
 			// if zeroth index, append
-			config.UniqueUsers = append([]int{ *uid }, config.UniqueUsers...)
+			config.UniqueUsers = append([]int{*uid}, config.UniqueUsers...)
 		} else {
 			// otherwise, we're inserting in the middle of the array
 			config.UniqueUsers = append(config.UniqueUsers[:i+1], config.UniqueUsers[i:]...)
@@ -176,12 +179,12 @@ func updateUniqueStat(uid *int, config *Config) {
 }
 
 type Config struct {
-	Token 			string
-	Owner			int
-	StatConverted 	int
-	StatUniqueChats	int
-	StatStarted		int64
-	UniqueUsers		[]int
+	Token           string
+	Owner           int
+	StatConverted   int
+	StatUniqueChats int
+	StatStarted     int64
+	UniqueUsers     []int
 }
 
 func dumpConfig(config *Config) {
@@ -192,11 +195,13 @@ func dumpConfig(config *Config) {
 
 	file, err := os.Create("botConfig.json")
 	if err != nil {
-		log.Fatal(err); os.Exit(1)
+		log.Fatal(err)
+		os.Exit(1)
 	}
 
 	// Write, close
-	file.Write(jsonbytes); file.Close()
+	file.Write(jsonbytes)
+	file.Close()
 }
 
 func loadConfig() Config {
@@ -209,13 +214,13 @@ func loadConfig() Config {
 		botToken := strings.TrimSuffix(inp, "\n")
 
 		// Create, marshal
-		config := Config {
-			Token: botToken,
-			Owner: 0,
-			StatConverted: 0,
+		config := Config{
+			Token:           botToken,
+			Owner:           0,
+			StatConverted:   0,
 			StatUniqueChats: 0,
-			StatStarted: time.Now().Unix(),
-			UniqueUsers: []int{},
+			StatStarted:     time.Now().Unix(),
+			UniqueUsers:     []int{},
 		}
 
 		dumpConfig(&config)
@@ -269,17 +274,17 @@ func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
 	)
 
 	// Construct keyboard for refresh functionality
-	kb := [][]tb.InlineButton{{tb.InlineButton{ Text: "🔄 Refresh statistics", Data: "stats/refresh" }}}
-	rplm := tb.ReplyMarkup{ InlineKeyboard: kb }
+	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh statistics", Data: "stats/refresh"}}}
+	rplm := tb.ReplyMarkup{InlineKeyboard: kb}
 
 	// Add Markdown parsing for a pretty link embed + keyboard
-	sopts := tb.SendOptions{ ParseMode: "Markdown", ReplyMarkup: &rplm }
+	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
 
 	return msg, sopts
 }
 
 func main() {
-	const vnum string = "2020.5.17"
+	const vnum string = "2020.5.18"
 
 	// Set-up logging
 	logf, err := os.OpenFile("log-file.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -299,8 +304,8 @@ func main() {
 
 	config := loadConfig()
 	bot, err := tb.NewBot(tb.Settings{
-		Token: config.Token,
-		Poller: &tb.LongPoller{ Timeout: 10 * time.Second },
+		Token:  config.Token,
+		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	})
 
 	if err != nil {
@@ -325,7 +330,7 @@ func main() {
 	bot.Handle("/help", func(message *tb.Message) {
 		helpMessage := "🖼 To use the bot, simply send your image to this chat (jpg/png)!"
 		bot.Send(message.Sender, helpMessage)
-		
+
 		if message.Sender.ID != config.Owner {
 			log.Println("🙋‍♂️", message.Sender.ID, "requested help!")
 		}
@@ -401,8 +406,8 @@ func main() {
 
 			resp := tb.CallbackResponse{
 				CallbackID: cb.ID,
-				Text: "🔄 Statistics refreshed!",
-				ShowAlert: false,
+				Text:       "🔄 Statistics refreshed!",
+				ShowAlert:  false,
 			}
 
 			bot.Respond(cb, &resp)
