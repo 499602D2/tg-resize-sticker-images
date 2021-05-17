@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"image/png"
 	"io"
 	"log"
 	"sort"
@@ -21,21 +22,22 @@ import (
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/dustin/go-humanize"
 	"github.com/go-co-op/gocron"
+	pngquant "github.com/yusukebe/go-pngquant"
 	tb "gopkg.in/tucnak/telebot.v2"
 )
 
-func resizeImage(imgBytes []byte) ([]byte, string, error) {
+func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	// Build image from buffer
 	img, err := vips.NewImageFromBuffer(imgBytes)
 	if err != nil {
-		log.Println("Error decoding image! Err: ", err)
+		log.Println("⚠️ Error decoding image! Err: ", err)
 
 		errorMsg := fmt.Sprintf("⚠️ Error decoding image: %s.", err.Error())
 		if err.Error() == "unsupported image format" {
 			errorMsg += " Please send jpg/png images."
 		}
 
-		return nil, errorMsg, err
+		return nil, errorMsg, err, ""
 	}
 
 	// Dimensions for resize (int)
@@ -51,44 +53,67 @@ func resizeImage(imgBytes []byte) ([]byte, string, error) {
 	}
 
 	// Resize, upscale status
-	err = img.Resize(resScale, -1)
-	imgUpscaled := resScale > 1
+	err = img.Resize(resScale, vips.KernelAuto)
+	imgUpscaled := resScale > 1.0
 
-	// Construct params for png export
-	var pngBuff []byte
-	compressionFailed := false
-	compression := 0
+	if err != nil {
+		log.Println("⚠️ Error resizing image:", err)
+	}
 
 	// Increment compression ratio if size is too large
-	for {
-		pngParams := vips.PngExportParams{
-			StripMetadata: true,
-			Compression:   compression,
-			Interlace:     false,
-		}
+	pngParams := vips.PngExportParams{
+		StripMetadata: true,
+		Compression:   6,
+		Interlace:     false,
+	}
 
-		// encode as png into a new buffer
-		pngBuff, _, err = img.ExportPng(&pngParams)
-		if err != nil {
-			log.Fatal("Error encoding image as png: ", err)
-			if err.Error() == "unsupported image format" {
-				return nil, "⚠️ Unsupported image format!", err
-			} else {
-				return nil, fmt.Sprintf("⚠️ Error: %s", err.Error()), err
-			}
-		}
+	// encode as png into a new buffer
+	pngBuff, _, err := img.ExportPng(&pngParams)
+	if err != nil {
+		log.Fatal("⚠️ Error encoding image as png: ", err)
 
-		// check filesize is within limits (max. 512 KB)
-		if len(pngBuff)/1024 >= 512 {
-			if compression < 10 {
-				compression++
-				continue
-			} else {
-				compressionFailed = true
-				break
-			}
+		if err.Error() == "unsupported image format" {
+			return nil, "⚠️ Unsupported image format!", err, ""
 		} else {
-			break
+			return nil, fmt.Sprintf("⚠️ Error: %s", err.Error()), err, ""
+		}
+	}
+
+	// Did we reach the target file size?
+	compressionFailed := len(pngBuff)/1024 >= 512
+	pngqStr := ""
+
+	// if compression fails, run the image through pngquant
+	if compressionFailed {
+		pngqStr = " [Compressed]"
+		expParams := vips.ExportParams{
+			Format:        vips.ImageTypePNG,
+			StripMetadata: true,
+			Compression:   6,
+		}
+
+		imgImg, err := img.ToImage(&expParams)
+		if err != nil {
+			log.Println("⚠️ Error exporting image as image.Image:", err)
+		}
+
+		cImg, err := pngquant.Compress(imgImg, "6")
+		if err != nil {
+			log.Println("⚠️ Error compressing image with pngquant:", err)
+		}
+
+		// write to buffer
+		cBuff := new(bytes.Buffer)
+		err = png.Encode(cBuff, cImg)
+		if err != nil {
+			log.Println("⚠️ Error encoding cImg as png:", err)
+		}
+
+		pngBuff = cBuff.Bytes()
+		compressionFailed = len(pngBuff)/1024 >= 512
+
+		if compressionFailed {
+			log.Println("\t⚠️ Image compression failed! Buffer length (KB):", len(cBuff.Bytes())/1024)
 		}
 	}
 
@@ -99,14 +124,14 @@ func resizeImage(imgBytes []byte) ([]byte, string, error) {
 	)
 
 	// Add notice to user if image was upscaled or compressed
-	if imgUpscaled == true {
+	if imgUpscaled {
 		imgCaption += "\n\n⚠️ Image upscaled! Quality may have been lost: consider using a larger image."
-	} else if compressionFailed == true {
+	} else if compressionFailed {
 		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
 	}
 
 	img.Close()
-	return pngBuff, imgCaption, nil
+	return pngBuff, imgCaption, nil, pngqStr
 }
 
 func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
@@ -120,12 +145,16 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
 	}
 
 	if err != nil {
-		log.Fatal("Error running GetFile: ", err)
+		log.Fatal("⚠️ Error running GetFile: ", err)
 	}
 
 	// Download (copy) to buffer
 	var imgBuf bytes.Buffer
 	_, err = io.Copy(&imgBuf, file)
+
+	if err != nil {
+		log.Println("⚠️ Error downloading image:", err)
+	}
 
 	return imgBuf.Bytes()
 }
@@ -146,7 +175,7 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 	_, err := doc.Send(bot, message.Sender, &sendOpts)
 
 	if err != nil {
-		log.Println("Error sending message:", err)
+		log.Println("⚠️ Error sending message:", err)
 	}
 }
 
@@ -175,7 +204,6 @@ func updateUniqueStat(uid *int, config *Config) {
 
 	// Stat++
 	config.StatUniqueChats++
-	return
 }
 
 type Config struct {
@@ -190,7 +218,7 @@ type Config struct {
 func dumpConfig(config *Config) {
 	jsonbytes, err := json.MarshalIndent(*config, "", "\t")
 	if err != nil {
-		log.Fatalf("Error marshaling json! Err: %s", err)
+		log.Fatalf("⚠️ Error marshaling json! Err: %s", err)
 	}
 
 	file, err := os.Create("botConfig.json")
@@ -230,7 +258,7 @@ func loadConfig() Config {
 	// Config exists: load
 	fbytes, err := ioutil.ReadFile("botConfig.json")
 	if err != nil {
-		log.Println("Error reading config file: %s", err)
+		log.Println("⚠️ Error reading config file:", err)
 		os.Exit(1)
 	}
 
@@ -240,7 +268,7 @@ func loadConfig() Config {
 	// Unmarshal into our config struct
 	err = json.Unmarshal(fbytes, &config)
 	if err != nil {
-		log.Fatal("Error unmarshaling config json: ", err)
+		log.Fatal("⚠️ Error unmarshaling config json: ", err)
 		os.Exit(1)
 	}
 
@@ -315,6 +343,7 @@ func main() {
 
 	// https://pkg.go.dev/github.com/davidbyttow/govips/v2@v2.6.0/vips#LoggingSettings
 	vips.LoggingSettings(nil, vips.LogLevel(3))
+	vips.Startup(nil)
 
 	// Command handler for /start
 	bot.Handle("/start", func(message *tb.Message) {
@@ -353,7 +382,7 @@ func main() {
 	// Register photo handler
 	bot.Handle(tb.OnPhoto, func(message *tb.Message) {
 		// Resize photo
-		photo, imgCaption, err := resizeImage(getBytes(bot, message, "photo"))
+		photo, imgCaption, err, pngqC := resizeImage(getBytes(bot, message, "photo"))
 
 		// Send
 		if err != nil {
@@ -363,7 +392,7 @@ func main() {
 			config.StatConverted += 1
 
 			if message.Sender.ID != config.Owner {
-				log.Println("🖼", message.Sender.ID, "successfully converted an image!")
+				log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
 			}
 		}
 
@@ -377,7 +406,7 @@ func main() {
 	// Register document handler
 	bot.Handle(tb.OnDocument, func(message *tb.Message) {
 		// Resize photo
-		photo, imgCaption, err := resizeImage(getBytes(bot, message, "document"))
+		photo, imgCaption, err, pngqC := resizeImage(getBytes(bot, message, "document"))
 
 		// Send
 		if err != nil {
@@ -387,7 +416,7 @@ func main() {
 			config.StatConverted += 1
 
 			if message.Sender.ID != config.Owner {
-				log.Println("🖼", message.Sender.ID, "successfully converted an image!")
+				log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
 			}
 		}
 

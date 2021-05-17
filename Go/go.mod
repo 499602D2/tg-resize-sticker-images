@@ -8,6 +8,7 @@ require (
 	github.com/go-co-op/gocron v1.5.0 // indirect
 	github.com/go-redis/redis/v8 v8.8.2 // indirect
 	github.com/h2non/bimg v1.1.5
+	github.com/yusukebe/go-pngquant v0.0.0-20200223090257-49b91f11b627 // indirect
 	golang.org/x/image v0.0.0-20210504121937-7319ad40d33e // indirect
 	golang.org/x/net v0.0.0-20210510120150-4163338589ed // indirect
 	gopkg.in/tucnak/telebot.v2 v2.3.5
