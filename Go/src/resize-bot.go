@@ -68,7 +68,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	// encode as png into a new buffer
 	pngBuff, _, err := img.ExportPng(&pngParams)
 	if err != nil {
-		log.Fatal("⚠️ Error encoding image as png: ", err)
+		log.Println("⚠️ Error encoding image as png: ", err)
 
 		if err.Error() == "unsupported image format" {
 			return nil, "⚠️ Unsupported image format!", err, ""
@@ -144,7 +144,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) ([]byte, error
 	}
 
 	if err != nil {
-		log.Fatal("⚠️ Error running GetFile: ", err)
+		log.Println("⚠️ Error running GetFile: ", err)
 		return []byte{}, err
 	}
 
@@ -219,12 +219,12 @@ type Config struct {
 func dumpConfig(config *Config) {
 	jsonbytes, err := json.MarshalIndent(*config, "", "\t")
 	if err != nil {
-		log.Fatalf("⚠️ Error marshaling json! Err: %s", err)
+		log.Printf("⚠️ Error marshaling json! Err: %s\n", err)
 	}
 
 	file, err := os.Create("botConfig.json")
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 		os.Exit(1)
 	}
 
@@ -269,7 +269,7 @@ func loadConfig() Config {
 	// Unmarshal into our config struct
 	err = json.Unmarshal(fbytes, &config)
 	if err != nil {
-		log.Fatal("⚠️ Error unmarshaling config json: ", err)
+		log.Println("⚠️ Error unmarshaling config json: ", err)
 		os.Exit(1)
 	}
 
