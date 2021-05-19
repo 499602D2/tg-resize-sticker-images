@@ -134,10 +134,11 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	return pngBuff, imgCaption, nil, pngqStr
 }
 
-func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
+func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) ([]byte, error) {
 	// Get file from tg servers
 	var err error
 	var file io.ReadCloser
+
 	if mediaType == "photo" {
 		file, err = bot.GetFile(&message.Photo.File)
 	} else {
@@ -146,6 +147,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
 
 	if err != nil {
 		log.Fatal("⚠️ Error running GetFile: ", err)
+		return []byte{}, err
 	}
 
 	// Download (copy) to buffer
@@ -156,7 +158,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) []byte {
 		log.Println("⚠️ Error downloading image:", err)
 	}
 
-	return imgBuf.Bytes()
+	return imgBuf.Bytes(), nil
 }
 
 func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) {
@@ -312,7 +314,7 @@ func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
 }
 
 func main() {
-	const vnum string = "2020.5.18"
+	const vnum string = "2020.5.19"
 
 	// Set-up logging
 	logf, err := os.OpenFile("log-file.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -381,8 +383,15 @@ func main() {
 
 	// Register photo handler
 	bot.Handle(tb.OnPhoto, func(message *tb.Message) {
-		// Resize photo
-		photo, imgCaption, err, pngqC := resizeImage(getBytes(bot, message, "photo"))
+		// Download
+		imgBytes, err := getBytes(bot, message, "photo")
+		if err != nil {
+			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
+			return
+		}
+
+		// resize
+		photo, imgCaption, err, pngqC := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
@@ -405,8 +414,15 @@ func main() {
 
 	// Register document handler
 	bot.Handle(tb.OnDocument, func(message *tb.Message) {
-		// Resize photo
-		photo, imgCaption, err, pngqC := resizeImage(getBytes(bot, message, "document"))
+		// Download
+		imgBytes, err := getBytes(bot, message, "document")
+		if err != nil {
+			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
+			return
+		}
+
+		// Resize
+		photo, imgCaption, err, pngqC := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
