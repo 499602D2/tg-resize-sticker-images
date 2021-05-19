@@ -12,13 +12,11 @@ import (
 	"log"
 	"sort"
 	"time"
-
 	"bufio"
 	"encoding/json"
 	"io/ioutil"
 	"os"
 	"strings"
-
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/dustin/go-humanize"
 	"github.com/go-co-op/gocron"
@@ -156,6 +154,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) ([]byte, error
 
 	if err != nil {
 		log.Println("⚠️ Error downloading image:", err)
+		return []byte{}, err
 	}
 
 	return imgBuf.Bytes(), nil
