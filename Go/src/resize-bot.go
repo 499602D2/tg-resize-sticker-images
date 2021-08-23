@@ -15,10 +15,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"syscall"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
+	"path/filepath"
 
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/dustin/go-humanize"
@@ -135,32 +136,77 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	return pngBuff, imgCaption, nil, pngqStr
 }
 
-func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) ([]byte, error) {
-	// Get file from tg servers
-	var err error
-	var file io.ReadCloser
+func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *Config) ([]byte, error) {
+	// If using local API, no need to get file: open from disk and return bytes
+	if config.API.LocalAPIEnabled {
+		var err error
+		var file tb.File
 
-	if mediaType == "photo" {
-		file, err = bot.GetFile(&message.Photo.File)
+		// Get file, store
+		if mediaType == "photo" {
+			file, err = bot.FileByID(message.Photo.File.FileID)
+		} else {
+			file, err = bot.FileByID(message.Document.File.FileID)
+		}
+
+		if err != nil {
+			log.Println("⚠️ Error running GetFile (local): ", err)
+			log.Printf("File: %+v\n", file)
+			return []byte{}, err
+		}
+
+		// Construct path from config's working directory
+		fPath := filepath.Join(config.API.LocalWorkingDir, config.Token, file.FilePath)
+		if err != nil {
+			log.Println("Error creating absolute path:", err)
+			return []byte{}, err
+		}
+
+		// Attempt reading file contents
+		imgBuf, err := ioutil.ReadFile(fPath)
+
+		if err != nil {
+			log.Println("⚠️ Error opening local file from FilePath!", message.Photo.FilePath)
+			log.Println("Constructed fPath:", fPath)
+			log.Println("Err:", err)
+
+			// Error: remove file, return
+			os.Remove(fPath)
+			return []byte{}, err
+		}
+
+		// Success: remove file, return
+		os.Remove(fPath)
+		return imgBuf, nil
+
 	} else {
-		file, err = bot.GetFile(&message.Document.File)
+		// Else, we're using the regular Telegram bot API: get file from servers
+		var err error
+		var file io.ReadCloser
+
+		if mediaType == "photo" {
+			file, err = bot.GetFile(&message.Photo.File)
+		} else {
+			file, err = bot.GetFile(&message.Document.File)
+		}
+
+		defer file.Close()
+		if err != nil {
+			log.Println("⚠️ Error running GetFile: ", err)
+			return []byte{}, err
+		}
+
+		// Download or copy to buffer, depending on API used
+		var imgBuf bytes.Buffer
+		_, err = io.Copy(&imgBuf, file)
+
+		if err != nil {
+			log.Println("⚠️ Error copying image to buffer:", err)
+			return []byte{}, err
+		}
+
+		return imgBuf.Bytes(), nil
 	}
-
-	if err != nil {
-		log.Println("⚠️ Error running GetFile: ", err)
-		return []byte{}, err
-	}
-
-	// Download (copy) to buffer
-	var imgBuf bytes.Buffer
-	_, err = io.Copy(&imgBuf, file)
-
-	if err != nil {
-		log.Println("⚠️ Error downloading image:", err)
-		return []byte{}, err
-	}
-
-	return imgBuf.Bytes(), nil
 }
 
 func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) (bool) {
@@ -252,7 +298,7 @@ func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
 
 type Config struct {
 	Token           	string
-	API 				API
+	API                 API
 	Owner           	int
 	StatConverted   	int
 	StatUniqueChats 	int
@@ -261,9 +307,10 @@ type Config struct {
 }
 
 type API struct {
-	LocalAPIEnabled		bool
-	CloudAPILoggedOut	bool
-	URL					string
+	LocalAPIEnabled     bool
+	CloudAPILoggedOut   bool
+	LocalWorkingDir     string
+	URL                 string
 }
 
 func dumpConfig(config *Config) {
@@ -273,7 +320,7 @@ func dumpConfig(config *Config) {
 	}
 
 	wd, _ := os.Getwd()
-	configf := fmt.Sprintf("%s/config/botConfig.json", wd)
+	configf := filepath.Join(wd, "config", "botConfig.json")
 
 	file, err := os.Create(configf)
 	if err != nil {
@@ -289,12 +336,12 @@ func dumpConfig(config *Config) {
 func loadConfig() Config {
 	// Get log file's path relative to working dir
 	wd, _ := os.Getwd()
-	configPath := fmt.Sprintf("%s/config", wd)
+	configPath := filepath.Join(wd, "config")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		_ = os.Mkdir(configPath, os.ModePerm)
 	}
 
-	configf := fmt.Sprintf("%s/botConfig.json", configPath)
+	configf := filepath.Join(configPath, "botConfig.json")
 	if _, err := os.Stat(configf); os.IsNotExist(err) {
 		// Config doesn't exist: create
 		fmt.Print("\nEnter bot token: ")
@@ -309,6 +356,7 @@ func loadConfig() Config {
 			API:             API{
 				LocalAPIEnabled:   false,
 				CloudAPILoggedOut: false,
+				LocalWorkingDir:   "working/dir/on/server",
 				URL:               "https://api.telegram.org",
 			},
 			Owner:           0,
@@ -375,13 +423,13 @@ func main() {
 
 	// Log file
 	wd, _ := os.Getwd()
-	logPath := fmt.Sprintf("%s/logs", wd)
+	logPath := filepath.Join(wd, "logs")
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		_ = os.Mkdir(logPath, os.ModePerm)
 	}
 
 	// Set-up logging
-	logFilePath := fmt.Sprintf("%s/log.txt", logPath)
+	logFilePath := filepath.Join(logPath, "log.txt")
 	logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Println(err)
@@ -412,13 +460,12 @@ func main() {
 		})
 
 		if err != nil {
-			log.Println("Error starting bot:", err)
+			log.Println("Error starting bot during logout:", err)
 			return
 		}
 
 		// Logout from the cloud API server
 		success, err := bot.Logout()
-		bot.Stop()
 
 		if success {
 			log.Println("✅ Successfully logged out from the cloud API server!")
@@ -432,6 +479,14 @@ func main() {
 		dumpConfig(&config)
 
 		log.Println("✅ Config updated to use local API!")
+
+		// Warn if working directory is unset
+		if config.API.LocalWorkingDir == "working/dir/on/server" || config.API.LocalWorkingDir == "" {
+			log.Fatal("⚠️ Local API is enabled, but LocalWorkingDir is unset! Images cannot be downloaded.")
+		}
+
+		fmt.Println("✅ Logged out from cloud API server: please restart the program.")
+		os.Exit(0)
 	}
 
 	bot, err := tb.NewBot(tb.Settings{
@@ -486,7 +541,7 @@ func main() {
 	// Register photo handler
 	bot.Handle(tb.OnPhoto, func(message *tb.Message) {
 		// Download
-		imgBytes, err := getBytes(bot, message, "photo")
+		imgBytes, err := getBytes(bot, message, "photo", &config)
 		if err != nil {
 			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
 			return
@@ -519,7 +574,7 @@ func main() {
 	// Register document handler
 	bot.Handle(tb.OnDocument, func(message *tb.Message) {
 		// Download
-		imgBytes, err := getBytes(bot, message, "document")
+		imgBytes, err := getBytes(bot, message, "document", &config)
 		if err != nil {
 			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
 			return
