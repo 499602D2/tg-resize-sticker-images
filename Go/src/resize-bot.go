@@ -5,18 +5,21 @@ golang rewrite of the telegram sticker resize bot python program.
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"image/png"
 	"io"
-	"log"
-	"sort"
-	"time"
-	"bufio"
-	"encoding/json"
 	"io/ioutil"
+	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"sort"
 	"strings"
+	"time"
+
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/dustin/go-humanize"
 	"github.com/go-co-op/gocron"
@@ -65,7 +68,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 		Interlace:     false,
 	}
 
-	// encode as png into a new buffer
+	// Encode as png into a new buffer
 	pngBuff, _, err := img.ExportPng(&pngParams)
 	if err != nil {
 		log.Println("⚠️ Error encoding image as png: ", err)
@@ -81,7 +84,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	compressionFailed := len(pngBuff)/1024 >= 512
 	pngqStr := ""
 
-	// if compression fails, run the image through pngquant
+	// If compression fails, run the image through pngquant
 	if compressionFailed {
 		pngqStr = " [Compressed]"
 		expParams := vips.ExportParams{
@@ -100,7 +103,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 			log.Println("⚠️ Error compressing image with pngquant:", err)
 		}
 
-		// write to buffer
+		// Write to buffer
 		cBuff := new(bytes.Buffer)
 		err = png.Encode(cBuff, cImg)
 		if err != nil {
@@ -160,7 +163,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string) ([]byte, error
 	return imgBuf.Bytes(), nil
 }
 
-func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) {
+func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) (bool) {
 	// Send as a document: create object
 	doc := tb.Document{
 		File:     tb.FromReader(bytes.NewReader(photo)),
@@ -170,14 +173,24 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 	}
 
 	// Disable notifications
-	sendOpts := tb.SendOptions{DisableNotification: true}
+	sendOpts := tb.SendOptions{ DisableNotification: true }
 
 	// Send
 	_, err := doc.Send(bot, message.Sender, &sendOpts)
 
 	if err != nil {
-		log.Println("⚠️ Error sending message:", err)
+		log.Println("⚠️ Error sending message (notifying user):", err)
+		errorMessage := fmt.Sprintf("🚦 Error sending processed image: %s", err)
+
+		_, err := bot.Send(message.Sender, errorMessage)
+		if err != nil {
+			log.Println("\tUnable to notify user:", err)
+		}
+
+		return false
 	}
+
+	return true
 }
 
 func updateUniqueStat(uid *int, config *Config) {
@@ -188,7 +201,8 @@ func updateUniqueStat(uid *int, config *Config) {
 	)
 
 	if i < len(config.UniqueUsers) && config.UniqueUsers[i] == *uid {
-		return // uid exists in the array
+		// uid exists in the array
+		return
 	} else {
 		if len(config.UniqueUsers) == i {
 			// nil or empty slice, or after last element
@@ -203,17 +217,53 @@ func updateUniqueStat(uid *int, config *Config) {
 		}
 	}
 
-	// Stat++
+	// stat++
 	config.StatUniqueChats++
 }
 
+func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
+	// Main stats
+	msg := fmt.Sprintf(
+		"📊 *Bot statistics*\nImages converted: %s\nUnique users seen: %s",
+		humanize.Comma(int64(config.StatConverted)),
+		humanize.Comma(int64(config.StatUniqueChats)),
+	)
+
+	// Server info
+	msg += fmt.Sprintf("\n\n*🎛 Server information*\nBot started %s",
+		humanize.RelTime(time.Unix(config.StatStarted, 0), time.Now(), "ago", "ago"),
+	)
+
+	// Vnum, link
+	msg += fmt.Sprintf(
+		"\nRunning version [%s](https://github.com/499602D2/tg-resize-sticker-images)",
+		vnum,
+	)
+
+	// Construct keyboard for refresh functionality
+	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh statistics", Data: "stats/refresh"}}}
+	rplm := tb.ReplyMarkup{InlineKeyboard: kb}
+
+	// Add Markdown parsing for a pretty link embed + keyboard
+	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
+
+	return msg, sopts
+}
+
 type Config struct {
-	Token           string
-	Owner           int
-	StatConverted   int
-	StatUniqueChats int
-	StatStarted     int64
-	UniqueUsers     []int
+	Token           	string
+	API 				API
+	Owner           	int
+	StatConverted   	int
+	StatUniqueChats 	int
+	StatStarted     	int64
+	UniqueUsers     	[]int
+}
+
+type API struct {
+	LocalAPIEnabled		bool
+	CloudAPILoggedOut	bool
+	URL					string
 }
 
 func dumpConfig(config *Config) {
@@ -222,7 +272,10 @@ func dumpConfig(config *Config) {
 		log.Printf("⚠️ Error marshaling json! Err: %s\n", err)
 	}
 
-	file, err := os.Create("botConfig.json")
+	wd, _ := os.Getwd()
+	configf := fmt.Sprintf("%s/config/botConfig.json", wd)
+
+	file, err := os.Create(configf)
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
@@ -234,8 +287,16 @@ func dumpConfig(config *Config) {
 }
 
 func loadConfig() Config {
-	// Config doesn't exist: create
-	if _, err := os.Stat("botConfig.json"); os.IsNotExist(err) {
+	// Get log file's path relative to working dir
+	wd, _ := os.Getwd()
+	configPath := fmt.Sprintf("%s/config", wd)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		_ = os.Mkdir(configPath, os.ModePerm)
+	}
+
+	configf := fmt.Sprintf("%s/botConfig.json", configPath)
+	if _, err := os.Stat(configf); os.IsNotExist(err) {
+		// Config doesn't exist: create
 		fmt.Print("\nEnter bot token: ")
 
 		reader := bufio.NewReader(os.Stdin)
@@ -245,6 +306,11 @@ func loadConfig() Config {
 		// Create, marshal
 		config := Config{
 			Token:           botToken,
+			API:             API{
+				LocalAPIEnabled:   false,
+				CloudAPILoggedOut: false,
+				URL:               "https://api.telegram.org",
+			},
 			Owner:           0,
 			StatConverted:   0,
 			StatUniqueChats: 0,
@@ -252,12 +318,12 @@ func loadConfig() Config {
 			UniqueUsers:     []int{},
 		}
 
-		dumpConfig(&config)
+		go dumpConfig(&config)
 		return config
 	}
 
 	// Config exists: load
-	fbytes, err := ioutil.ReadFile("botConfig.json")
+	fbytes, err := ioutil.ReadFile(configf)
 	if err != nil {
 		log.Println("⚠️ Error reading config file:", err)
 		os.Exit(1)
@@ -283,62 +349,98 @@ func loadConfig() Config {
 	return config
 }
 
-func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
-	// main stats
-	msg := fmt.Sprintf(
-		"📊 *Bot statistics*\nImages converted: %s\nUnique users seen: %s",
-		humanize.Comma(int64(config.StatConverted)),
-		humanize.Comma(int64(config.StatUniqueChats)),
-	)
+func setupSignalHandler(config *Config) {
+	// Listens for incoming interrupt signals, dumps config if detected
+	channel := make(chan os.Signal)
+	signal.Notify(channel, os.Interrupt, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
 
-	// server info
-	msg += fmt.Sprintf("\n\n*🎛 Server information*\nBot started %s",
-		humanize.RelTime(time.Unix(config.StatStarted, 0), time.Now(), "ago", "ago"),
-	)
-
-	// Vnum, link
-	msg += fmt.Sprintf(
-		"\nRunning version [%s](https://github.com/499602D2/tg-resize-sticker-images)",
-		vnum,
-	)
-
-	// Construct keyboard for refresh functionality
-	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh statistics", Data: "stats/refresh"}}}
-	rplm := tb.ReplyMarkup{InlineKeyboard: kb}
-
-	// Add Markdown parsing for a pretty link embed + keyboard
-	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
-
-	return msg, sopts
+	go func() {
+		<-channel
+		log.Println("🚦 Received interrupt signal: dumping config...")
+		dumpConfig(config)
+		os.Exit(0)
+	}()
 }
 
 func main() {
-	const vnum string = "2020.5.19"
+	/* Version history
+	0.0.0: 2021.3.29: started
+	1.0.0: 2021.5.15: first go implementation
+	1.1.0: 2021.5.16: keeping track of unique chats, binsearch
+	1.2.0: 2021.5.17: callback buttons for /stats
+	1.3.0: 2021.5.17: image compression with pngquant
+	1.3.1: 2021.5.19: bug fixes, error handling
+	1.4.0: 2021.8.22: error handling, local API support, handle interrupts */
+	const vnum string = "1.4.0 (2021.8.23)"
+
+	// Log file
+	wd, _ := os.Getwd()
+	logPath := fmt.Sprintf("%s/logs", wd)
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		_ = os.Mkdir(logPath, os.ModePerm)
+	}
 
 	// Set-up logging
-	logf, err := os.OpenFile("log-file.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	logFilePath := fmt.Sprintf("%s/log.txt", logPath)
+	logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Println(err)
 	}
 
-	// Defer to close when you're done with it, not because you think it's idiomatic!
-	defer logf.Close()
-
 	// Set output of logs to f
+	defer logf.Close()
 	log.SetOutput(logf)
 
-	// Version 0.1: 2020.3.29
 	log.Println("go-resize-bot", vnum)
 	log.Println("Bot started at", time.Now())
 
+	// Load (or create) config
 	config := loadConfig()
+
+	// Setup signal handler
+	setupSignalHandler(&config)
+
+	// Verify we're logged out if we're using the cloud API
+	if config.API.LocalAPIEnabled && !config.API.CloudAPILoggedOut {
+		log.Println("🚥 Local bot API enabled: logging out from cloud API servers...")
+
+		// Start bot in regular mode
+		bot, err := tb.NewBot(tb.Settings{
+			URL:    "https://api.telegram.org",
+			Token:  config.Token,
+		})
+
+		if err != nil {
+			log.Println("Error starting bot:", err)
+			return
+		}
+
+		// Logout from the cloud API server
+		success, err := bot.Logout()
+		bot.Stop()
+
+		if success {
+			log.Println("✅ Successfully logged out from the cloud API server!")
+		} else {
+			log.Println("⚠️ Error logging out from the server:", err)
+			return
+		}
+
+		// Success: update config, dump
+		config.API.CloudAPILoggedOut = true
+		dumpConfig(&config)
+
+		log.Println("✅ Config updated to use local API!")
+	}
+
 	bot, err := tb.NewBot(tb.Settings{
+		URL:    config.API.URL,
 		Token:  config.Token,
-		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
+		Poller: &tb.LongPoller{ Timeout: 10 * time.Second },
 	})
 
 	if err != nil {
-		log.Fatal("Error starting bot: ", err)
+		log.Fatal("Error starting bot:", err)
 		return
 	}
 
@@ -389,18 +491,20 @@ func main() {
 			return
 		}
 
-		// resize
+		// Resize
 		photo, imgCaption, err, pngqC := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
 			bot.Send(message.Sender, imgCaption)
 		} else {
-			sendDocument(bot, message, photo, imgCaption)
+			success := sendDocument(bot, message, photo, imgCaption)
 			config.StatConverted += 1
 
-			if message.Sender.ID != config.Owner {
-				log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+			if success {
+				if message.Sender.ID != config.Owner {
+					log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+				}
 			}
 		}
 
@@ -427,11 +531,13 @@ func main() {
 		if err != nil {
 			bot.Send(message.Sender, imgCaption)
 		} else {
-			sendDocument(bot, message, photo, imgCaption)
+			success := sendDocument(bot, message, photo, imgCaption)
 			config.StatConverted += 1
 
-			if message.Sender.ID != config.Owner {
-				log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+			if success {
+				if message.Sender.ID != config.Owner {
+					log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+				}
 			}
 		}
 
