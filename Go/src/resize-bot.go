@@ -402,12 +402,13 @@ func main() {
 
 	// Verify we're logged out if we're using the cloud API
 	if config.API.LocalAPIEnabled && !config.API.CloudAPILoggedOut {
-		log.Println("🚥 Local bot API enabled: logging out from cloud API servers...")
+		log.Println("🚦 Local bot API enabled: logging out from cloud API servers...")
 
 		// Start bot in regular mode
 		bot, err := tb.NewBot(tb.Settings{
 			URL:    "https://api.telegram.org",
 			Token:  config.Token,
+			Poller: &tb.LongPoller{ Timeout: 10 * time.Second },
 		})
 
 		if err != nil {
