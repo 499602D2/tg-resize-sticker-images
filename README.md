@@ -35,21 +35,21 @@ Sample configuration could look as follows (when the executable resides in `~/tg
 
 ````
 {
-	"Token": "12345:abcdefgh",
-	"API": {
-		"LocalAPIEnabled": true,
-		"CloudAPILoggedOut": true,
-		"LocalWorkingDir": "../../../telegram-bot-api",
-		"URL": "http://localhost:8081"
-	},
-	"Owner": 12345,
-	"StatConverted": 10,
-	"StatUniqueChats": 2,
-	"StatStarted": 1629725920,
-	"UniqueUsers": [
-		12345,
-		23456
-	]
+    "Token": "12345:abcdefgh",
+    "API": {
+        "LocalAPIEnabled": true,
+	"CloudAPILoggedOut": true,
+	"LocalWorkingDir": "../../../telegram-bot-api",
+	"URL": "http://localhost:8081"
+    },
+    "Owner": 12345,
+    "StatConverted": 10,
+    "StatUniqueChats": 2,
+    "StatStarted": 1629725920,
+    "UniqueUsers": [
+       12345,
+       23456
+    ]
 }
 ```
 
