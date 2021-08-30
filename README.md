@@ -33,7 +33,7 @@ Now, add in your bot API server's working directory into `LocalWorkingDir`: this
 
 Sample configuration could look as follows (when the executable resides in `~/tg-resize-sticker-images/Go/src`):
 
-````
+```
 {
     "Token": "12345:abcdefgh",
     "API": {
