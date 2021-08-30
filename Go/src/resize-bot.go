@@ -5,9 +5,7 @@ golang rewrite of the telegram sticker resize bot python program.
 package main
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"image/png"
 	"io"
@@ -15,14 +13,14 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sort"
-	"strings"
+	"path/filepath"
 	"syscall"
 	"time"
-	"path/filepath"
 
+	"tg-resize-sticker-images/utils"
+
+	"github.com/dustin/go-humanize/english"
 	"github.com/davidbyttow/govips/v2/vips"
-	"github.com/dustin/go-humanize"
 	"github.com/go-co-op/gocron"
 	pngquant "github.com/yusukebe/go-pngquant"
 	tb "gopkg.in/tucnak/telebot.v2"
@@ -32,7 +30,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	// Build image from buffer
 	img, err := vips.NewImageFromBuffer(imgBytes)
 	if err != nil {
-		log.Println("⚠️ Error decoding image! Err: ", err)
+		go log.Println("⚠️ Error decoding image! Err: ", err)
 
 		errorMsg := fmt.Sprintf("⚠️ Error decoding image: %s.", err.Error())
 		if err.Error() == "unsupported image format" {
@@ -59,7 +57,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	imgUpscaled := resScale > 1.0
 
 	if err != nil {
-		log.Println("⚠️ Error resizing image:", err)
+		go log.Println("⚠️ Error resizing image:", err)
 	}
 
 	// Increment compression ratio if size is too large
@@ -72,7 +70,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	// Encode as png into a new buffer
 	pngBuff, _, err := img.ExportPng(&pngParams)
 	if err != nil {
-		log.Println("⚠️ Error encoding image as png: ", err)
+		go log.Println("⚠️ Error encoding image as png: ", err)
 
 		if err.Error() == "unsupported image format" {
 			return nil, "⚠️ Unsupported image format!", err, ""
@@ -96,26 +94,26 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 
 		imgImg, err := img.ToImage(&expParams)
 		if err != nil {
-			log.Println("⚠️ Error exporting image as image.Image:", err)
+			go log.Println("⚠️ Error exporting image as image.Image:", err)
 		}
 
 		cImg, err := pngquant.Compress(imgImg, "6")
 		if err != nil {
-			log.Println("⚠️ Error compressing image with pngquant:", err)
+			go log.Println("⚠️ Error compressing image with pngquant:", err)
 		}
 
 		// Write to buffer
 		cBuff := new(bytes.Buffer)
 		err = png.Encode(cBuff, cImg)
 		if err != nil {
-			log.Println("⚠️ Error encoding cImg as png:", err)
+			go log.Println("⚠️ Error encoding cImg as png:", err)
 		}
 
 		pngBuff = cBuff.Bytes()
 		compressionFailed = len(pngBuff)/1024 >= 512
 
 		if compressionFailed {
-			log.Println("\t⚠️ Image compression failed! Buffer length (KB):", len(cBuff.Bytes())/1024)
+			go log.Println("\t⚠️ Image compression failed! Buffer length (KB):", len(cBuff.Bytes())/1024)
 		}
 	}
 
@@ -136,7 +134,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	return pngBuff, imgCaption, nil, pngqStr
 }
 
-func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *Config) ([]byte, error) {
+func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.Config) ([]byte, error) {
 	// If using local API, no need to get file: open from disk and return bytes
 	if config.API.LocalAPIEnabled {
 		var err error
@@ -150,15 +148,15 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *Config
 		}
 
 		if err != nil {
-			log.Println("⚠️ Error running GetFile (local): ", err)
-			log.Printf("File: %+v\n", file)
+			go log.Println("⚠️ Error running GetFile (local): ", err)
+			go log.Printf("File: %+v\n", file)
 			return []byte{}, err
 		}
 
 		// Construct path from config's working directory
 		fPath := filepath.Join(config.API.LocalWorkingDir, config.Token, file.FilePath)
 		if err != nil {
-			log.Println("Error creating absolute path:", err)
+			go log.Println("Error creating absolute path:", err)
 			return []byte{}, err
 		}
 
@@ -166,9 +164,9 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *Config
 		imgBuf, err := ioutil.ReadFile(fPath)
 
 		if err != nil {
-			log.Println("⚠️ Error opening local file from FilePath!", message.Photo.FilePath)
-			log.Println("Constructed fPath:", fPath)
-			log.Println("Err:", err)
+			go log.Println("⚠️ Error opening local file from FilePath!", message.Photo.FilePath)
+			go log.Println("Constructed fPath:", fPath)
+			go log.Println("Err:", err)
 
 			// Error: remove file, return
 			os.Remove(fPath)
@@ -192,7 +190,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *Config
 
 		defer file.Close()
 		if err != nil {
-			log.Println("⚠️ Error running GetFile: ", err)
+			go log.Println("⚠️ Error running GetFile: ", err)
 			return []byte{}, err
 		}
 
@@ -201,7 +199,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *Config
 		_, err = io.Copy(&imgBuf, file)
 
 		if err != nil {
-			log.Println("⚠️ Error copying image to buffer:", err)
+			go log.Println("⚠️ Error copying image to buffer:", err)
 			return []byte{}, err
 		}
 
@@ -225,12 +223,12 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 	_, err := doc.Send(bot, message.Sender, &sendOpts)
 
 	if err != nil {
-		log.Println("⚠️ Error sending message (notifying user):", err)
+		go log.Println("⚠️ Error sending message (notifying user):", err)
 		errorMessage := fmt.Sprintf("🚦 Error sending processed image: %s", err)
 
 		_, err := bot.Send(message.Sender, errorMessage)
 		if err != nil {
-			log.Println("\tUnable to notify user:", err)
+			go log.Println("\tUnable to notify user:", err)
 		}
 
 		return false
@@ -239,173 +237,15 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 	return true
 }
 
-func updateUniqueStat(uid *int, config *Config) {
-	// uarr is always sorted when performing check
-	i := sort.Search(
-		len(config.UniqueUsers),
-		func(i int) bool { return config.UniqueUsers[i] >= *uid },
-	)
-
-	if i < len(config.UniqueUsers) && config.UniqueUsers[i] == *uid {
-		// uid exists in the array
-		return
-	} else {
-		if len(config.UniqueUsers) == i {
-			// nil or empty slice, or after last element
-			config.UniqueUsers = append(config.UniqueUsers, *uid)
-		} else if i == 0 {
-			// if zeroth index, append
-			config.UniqueUsers = append([]int{*uid}, config.UniqueUsers...)
-		} else {
-			// otherwise, we're inserting in the middle of the array
-			config.UniqueUsers = append(config.UniqueUsers[:i+1], config.UniqueUsers[i:]...)
-			config.UniqueUsers[i] = *uid
-		}
-	}
-
-	// stat++
-	config.StatUniqueChats++
-}
-
-func buildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
-	// Main stats
-	msg := fmt.Sprintf(
-		"📊 *Bot statistics*\nImages converted: %s\nUnique users seen: %s",
-		humanize.Comma(int64(config.StatConverted)),
-		humanize.Comma(int64(config.StatUniqueChats)),
-	)
-
-	// Server info
-	msg += fmt.Sprintf("\n\n*🎛 Server information*\nBot started %s",
-		humanize.RelTime(time.Unix(config.StatStarted, 0), time.Now(), "ago", "ago"),
-	)
-
-	// Vnum, link
-	msg += fmt.Sprintf(
-		"\nRunning version [%s](https://github.com/499602D2/tg-resize-sticker-images)",
-		vnum,
-	)
-
-	// Construct keyboard for refresh functionality
-	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh statistics", Data: "stats/refresh"}}}
-	rplm := tb.ReplyMarkup{InlineKeyboard: kb}
-
-	// Add Markdown parsing for a pretty link embed + keyboard
-	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
-
-	return msg, sopts
-}
-
-type Config struct {
-	Token           	string
-	API                 API
-	Owner           	int
-	StatConverted   	int
-	StatUniqueChats 	int
-	StatStarted     	int64
-	UniqueUsers     	[]int
-}
-
-type API struct {
-	LocalAPIEnabled     bool
-	CloudAPILoggedOut   bool
-	LocalWorkingDir     string
-	URL                 string
-}
-
-func dumpConfig(config *Config) {
-	jsonbytes, err := json.MarshalIndent(*config, "", "\t")
-	if err != nil {
-		log.Printf("⚠️ Error marshaling json! Err: %s\n", err)
-	}
-
-	wd, _ := os.Getwd()
-	configf := filepath.Join(wd, "config", "botConfig.json")
-
-	file, err := os.Create(configf)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-
-	// Write, close
-	file.Write(jsonbytes)
-	file.Close()
-}
-
-func loadConfig() Config {
-	// Get log file's path relative to working dir
-	wd, _ := os.Getwd()
-	configPath := filepath.Join(wd, "config")
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		_ = os.Mkdir(configPath, os.ModePerm)
-	}
-
-	configf := filepath.Join(configPath, "botConfig.json")
-	if _, err := os.Stat(configf); os.IsNotExist(err) {
-		// Config doesn't exist: create
-		fmt.Print("\nEnter bot token: ")
-
-		reader := bufio.NewReader(os.Stdin)
-		inp, _ := reader.ReadString('\n')
-		botToken := strings.TrimSuffix(inp, "\n")
-
-		// Create, marshal
-		config := Config{
-			Token:           botToken,
-			API:             API{
-				LocalAPIEnabled:   false,
-				CloudAPILoggedOut: false,
-				LocalWorkingDir:   "working/dir/on/server",
-				URL:               "https://api.telegram.org",
-			},
-			Owner:           0,
-			StatConverted:   0,
-			StatUniqueChats: 0,
-			StatStarted:     time.Now().Unix(),
-			UniqueUsers:     []int{},
-		}
-
-		go dumpConfig(&config)
-		return config
-	}
-
-	// Config exists: load
-	fbytes, err := ioutil.ReadFile(configf)
-	if err != nil {
-		log.Println("⚠️ Error reading config file:", err)
-		os.Exit(1)
-	}
-
-	// New config struct
-	var config Config
-
-	// Unmarshal into our config struct
-	err = json.Unmarshal(fbytes, &config)
-	if err != nil {
-		log.Println("⚠️ Error unmarshaling config json: ", err)
-		os.Exit(1)
-	}
-
-	// Set startup time
-	config.StatStarted = time.Now().Unix()
-	config.StatUniqueChats = len(config.UniqueUsers)
-
-	// Sort UniqueChats, as they may be unsorted
-	sort.Ints(config.UniqueUsers)
-
-	return config
-}
-
-func setupSignalHandler(config *Config) {
+func setupSignalHandler(config *utils.Config) {
 	// Listens for incoming interrupt signals, dumps config if detected
 	channel := make(chan os.Signal)
 	signal.Notify(channel, os.Interrupt, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
 
 	go func() {
 		<-channel
-		log.Println("🚦 Received interrupt signal: dumping config...")
-		dumpConfig(config)
+		go log.Println("🚦 Received interrupt signal: dumping config...")
+		utils.DumpConfig(config)
 		os.Exit(0)
 	}()
 }
@@ -418,8 +258,10 @@ func main() {
 	1.2.0: 2021.5.17: callback buttons for /stats
 	1.3.0: 2021.5.17: image compression with pngquant
 	1.3.1: 2021.5.19: bug fixes, error handling
-	1.4.0: 2021.8.22: error handling, local API support, handle interrupts */
-	const vnum string = "1.4.0 (2021.8.23)"
+	1.4.0: 2021.8.22: error handling, local API support, handle interrupts 
+	1.4.0-1: 2021.8.25: logging changes to reduce disk writes
+	1.5.0: 2021.8.30: added anti-spam measures, split the program into modules */
+	const vnum string = "1.5.0 (2021.8.30)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -432,25 +274,36 @@ func main() {
 	logFilePath := filepath.Join(logPath, "log.txt")
 	logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		log.Println(err)
+		go log.Println(err)
 	}
 
 	// Set output of logs to f
 	defer logf.Close()
 	log.SetOutput(logf)
 
-	log.Println("go-resize-bot", vnum)
-	log.Println("Bot started at", time.Now())
+	go log.Println("🤖 Bot started at", time.Now())
+	go log.Println("go-resize-bot", vnum)
 
 	// Load (or create) config
-	config := loadConfig()
+	config := utils.LoadConfig()
+
+	// Setup anti-spam
+	Spam := utils.AntiSpam{}
+	Spam.ChatBannedUntilTimestamp = make(map[int]int)
+	Spam.ChatConversionLog = make(map[int]utils.ConversionLog)
+	Spam.ChatBanned = make(map[int]bool)
+	Spam.Rules = make(map[string]int64)
+
+	// Add rules
+	Spam.Rules["ConversionsPerHour"] = int64(config.ConversionRate)
+	Spam.Rules["TimeBetweenCommands"] = 2
 
 	// Setup signal handler
 	setupSignalHandler(&config)
 
 	// Verify we're logged out if we're using the cloud API
 	if config.API.LocalAPIEnabled && !config.API.CloudAPILoggedOut {
-		log.Println("🚦 Local bot API enabled: logging out from cloud API servers...")
+		go log.Println("🚦 Local bot API enabled: logging out from cloud API servers...")
 
 		// Start bot in regular mode
 		bot, err := tb.NewBot(tb.Settings{
@@ -460,7 +313,7 @@ func main() {
 		})
 
 		if err != nil {
-			log.Println("Error starting bot during logout:", err)
+			go log.Println("Error starting bot during logout:", err)
 			return
 		}
 
@@ -468,17 +321,17 @@ func main() {
 		success, err := bot.Logout()
 
 		if success {
-			log.Println("✅ Successfully logged out from the cloud API server!")
+			go log.Println("✅ Successfully logged out from the cloud API server!")
 		} else {
-			log.Println("⚠️ Error logging out from the server:", err)
+			go log.Println("⚠️ Error logging out from the server:", err)
 			return
 		}
 
 		// Success: update config, dump
 		config.API.CloudAPILoggedOut = true
-		dumpConfig(&config)
+		utils.DumpConfig(&config)
 
-		log.Println("✅ Config updated to use local API!")
+		go log.Println("✅ Config updated to use local API!")
 
 		// Warn if working directory is unset
 		if config.API.LocalWorkingDir == "working/dir/on/server" || config.API.LocalWorkingDir == "" {
@@ -506,40 +359,71 @@ func main() {
 
 	// Command handler for /start
 	bot.Handle("/start", func(message *tb.Message) {
+		// Anti-spam
+		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
+			return
+		}
+
 		startMessage := "🖼 Hi there! To use the bot, simply send an image to this chat (jpg/png)."
 		bot.Send(message.Sender, startMessage)
 
 		if message.Sender.ID != config.Owner {
-			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
+			fmt.Println("🌟", message.Sender.ID, "bot added to new chat!")
 		}
 	})
 
 	// Command handler for /help
 	bot.Handle("/help", func(message *tb.Message) {
-		helpMessage := "🖼 To use the bot, simply send your image to this chat (jpg/png)!"
-		bot.Send(message.Sender, helpMessage)
+		// Anti-spam
+		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
+			return
+		}
+
+		helpMessage := "🖼 To use the bot, simply send your image to this chat! (JPG/PNG)"
+		helpMessage += fmt.Sprintf(
+			"\n\n*Note:* you can convert up to %d images per hour.",
+			Spam.Rules["ConversionsPerHour"])
+
+		helpMessage += fmt.Sprintf(
+			" You have %s in the last hour.",
+			english.Plural(
+				Spam.ChatConversionLog[message.Sender.ID].ConversionCount, "conversion", ""))
+
+		bot.Send(message.Sender, helpMessage, "Markdown")
 
 		if message.Sender.ID != config.Owner {
-			log.Println("🙋‍♂️", message.Sender.ID, "requested help!")
+			fmt.Println("🙋‍♂️", message.Sender.ID, "requested help!")
 		}
 	})
 
 	// Keep track of the last chat to convert an image;
-	// this should reduce updateUniqueStat checks a lot
+	// this should reduce UpdateUniqueStat checks a lot
 	var lastUser int
 
 	// Command handler for /stats
 	bot.Handle("/stats", func(message *tb.Message) {
-		msg, sopts := buildStatsMsg(&config, vnum)
+		// Anti-spam
+		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
+			return
+		}
+
+		msg, sopts := utils.BuildStatsMsg(&config, vnum)
 		bot.Send(message.Sender, msg, &sopts)
 
 		if message.Sender.ID != config.Owner {
-			log.Println("📊", message.Sender.ID, "requested to view stats!")
+			fmt.Println("📊", message.Sender.ID, "requested to view stats!")
 		}
 	})
 
 	// Register photo handler
 	bot.Handle(tb.OnPhoto, func(message *tb.Message) {
+		// Anti-spam: return if user is not allowed to convert
+		if !utils.ConversionPreHandler(&Spam, message.Sender.ID) {
+			go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
+			bot.Send(message.Sender, utils.RatelimitedMessage(&Spam, message.Sender.ID), "Markdown")
+			return
+		}
+
 		// Download
 		imgBytes, err := getBytes(bot, message, "photo", &config)
 		if err != nil {
@@ -559,20 +443,27 @@ func main() {
 
 			if success {
 				if message.Sender.ID != config.Owner {
-					log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+					fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
 				}
 			}
 		}
 
 		// Update stat for count of unique chats in a goroutine
 		if message.Sender.ID != lastUser {
-			go updateUniqueStat(&message.Sender.ID, &config)
+			go utils.UpdateUniqueStat(&message.Sender.ID, &config)
 			lastUser = message.Sender.ID
 		}
 	})
 
 	// Register document handler
 	bot.Handle(tb.OnDocument, func(message *tb.Message) {
+		// Anti-spam: return if user is not allowed to convert
+		if !utils.ConversionPreHandler(&Spam, message.Sender.ID) {
+			go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
+			bot.Send(message.Sender, utils.RatelimitedMessage(&Spam, message.Sender.ID), "Markdown")
+			return
+		}
+
 		// Download
 		imgBytes, err := getBytes(bot, message, "document", &config)
 		if err != nil {
@@ -592,22 +483,34 @@ func main() {
 
 			if success {
 				if message.Sender.ID != config.Owner {
-					log.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+					fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
 				}
 			}
 		}
 
 		// Update stat for count of unique chats in a goroutine
 		if message.Sender.ID != lastUser {
-			go updateUniqueStat(&message.Sender.ID, &config)
+			go utils.UpdateUniqueStat(&message.Sender.ID, &config)
 			lastUser = message.Sender.ID
 		}
 	})
 
 	// Register handler for incoming callback queries (i.e. stats refresh)
 	bot.Handle(tb.OnCallback, func(cb *tb.Callback) {
+		// Anti-spam
+		if !utils.CommandPreHandler(&Spam, cb.Sender.ID, time.Now().Unix()) {
+			resp := tb.CallbackResponse{
+				CallbackID: cb.ID,
+				Text:       "⚠️ Please do not spam the bot for no reason.",
+				ShowAlert:  true,
+			}
+
+			bot.Respond(cb, &resp)
+			return
+		}
+
 		if cb.Data == "stats/refresh" {
-			msg, sopts := buildStatsMsg(&config, vnum)
+			msg, sopts := utils.BuildStatsMsg(&config, vnum)
 			bot.Edit(cb.Message, msg, &sopts)
 
 			resp := tb.CallbackResponse{
@@ -618,13 +521,14 @@ func main() {
 
 			bot.Respond(cb, &resp)
 		} else {
-			log.Println("⚠️ Invalid callback data received:", cb.Data)
+			go log.Println("⚠️ Invalid callback data received:", cb.Data)
 		}
 	})
 
-	// Dump statistics to disk once every 30 minutes
+	// Dump statistics to disk once every 30 minutes, clean spam struct every 60 minutes
 	scheduler := gocron.NewScheduler(time.UTC)
-	scheduler.Every(30).Minutes().Do(dumpConfig, &config)
+	scheduler.Every(30).Minutes().Do(utils.DumpConfig, &config)
+	scheduler.Every(60).Minutes().Do(utils.CleanConversionLogs, &Spam)
 	scheduler.StartAsync()
 
 	bot.Start()
