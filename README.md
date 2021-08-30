@@ -52,17 +52,3 @@ Sample configuration could look as follows (when the executable resides in `~/tg
     ]
 }
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
