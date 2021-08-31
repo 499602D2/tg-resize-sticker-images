@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"sync"
 
 	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
@@ -15,6 +16,7 @@ type AntiSpam struct {
 	ChatBannedUntilTimestamp  map[int]int           // How long banned chats are banned for
 	ChatConversionLog         map[int]ConversionLog // map chat ID to a ConversionLog struct
 	Rules                     map[string]int64      // Arbitrary rules for code flexibility
+	Mutex                     sync.Mutex            // Mutex to avoid concurrent map writes
 }
 
 type ConversionLog struct {
@@ -32,7 +34,12 @@ func CleanConversionLogs(spam *AntiSpam) {
 	// Keep track of statistics
 	cleanedArrays, cleanedEntries := 0, 0
 
+	// Timestamp range
 	trailingHour := int(time.Now().Unix() - 3600)
+
+	// Lock struct to avoid concurrent writes
+	spam.Mutex.Lock()
+
 	for chat, conversionLog := range spam.ChatConversionLog {
 		if conversionLog.ConversionCount != 0 {
 			if conversionLog.ConversionTimestamps[conversionLog.ConversionCount - 1] <= trailingHour {
@@ -50,13 +57,21 @@ func CleanConversionLogs(spam *AntiSpam) {
 		}
 	}
 
-	log.Printf("✨ ConversionLogs cleaned! Cleaned %s array(s) and removed %s entries!\n",
-		humanize.Comma(int64(cleanedArrays)),
-		humanize.Comma(int64(cleanedEntries)),
-	)
+	// Unlock struct
+	spam.Mutex.Unlock()
+
+	if cleanedEntries != 0 {
+		log.Printf("✨ ConversionLogs cleaned! Cleaned %s array(s) and removed %s entries!\n",
+			humanize.Comma(int64(cleanedArrays)),
+			humanize.Comma(int64(cleanedEntries)),
+		)
+	}
 }
 
 func ConversionPreHandler(spam *AntiSpam, chat int) bool {
+	// Lock spam struct
+	spam.Mutex.Lock()
+
 	// Check if user is banned
 	if spam.ChatBanned[chat] {
 		if spam.ChatBannedUntilTimestamp[chat] <= int(time.Now().Unix()) {
@@ -64,7 +79,10 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 			spam.ChatBannedUntilTimestamp[chat] = 0
 		} else {
 			fmt.Println("🔨 Chat", chat, "is currently banned until",
-				spam.ChatConversionLog[chat].ConversionTimestamps[0])
+				spam.ChatConversionLog[chat].ConversionTimestamps[0],
+			)
+
+			spam.Mutex.Unlock()
 			return false
 		}
 	}
@@ -128,6 +146,7 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 
 	// Return if chat was banned
 	if spam.ChatBanned[chat] {
+		spam.Mutex.Unlock()
 		return false
 	}
 
@@ -136,12 +155,15 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 	ccLog.ConversionTimestamps = append(ccLog.ConversionTimestamps, timeNow)
 	spam.ChatConversionLog[chat] = ccLog
 
+	spam.Mutex.Unlock()
 	return true
 }
 
 func CommandPreHandler(spam *AntiSpam, chat int, sentAt int64) bool {
 	// Verify chat is eligible for command parse
 	chatLog := spam.ChatConversionLog[chat]
+	spam.Mutex.Lock()
+
 	if chatLog.NextAllowedCommandTimestamp > sentAt {
 		chatLog.CommandSpamOffenses++
 
@@ -150,12 +172,14 @@ func CommandPreHandler(spam *AntiSpam, chat int, sentAt int64) bool {
 		chatLog.NextAllowedCommandTimestamp = time.Now().Unix() + spam.Rules["TimeBetweenCommands"]
 
 		spam.ChatConversionLog[chat] = chatLog
+		spam.Mutex.Unlock()
 		return false
 	}
 
 	// No spam, update chat's ConversionLog
 	chatLog.NextAllowedCommandTimestamp = time.Now().Unix() + spam.Rules["TimeBetweenCommands"]
 	spam.ChatConversionLog[chat] = chatLog
+	spam.Mutex.Unlock()
 	return true
 }
 

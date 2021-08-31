@@ -259,9 +259,10 @@ func main() {
 	1.3.0: 2021.5.17: image compression with pngquant
 	1.3.1: 2021.5.19: bug fixes, error handling
 	1.4.0: 2021.8.22: error handling, local API support, handle interrupts 
-	1.4.0-1: 2021.8.25: logging changes to reduce disk writes
-	1.5.0: 2021.8.30: added anti-spam measures, split the program into modules */
-	const vnum string = "1.5.0 (2021.8.30)"
+	1.4.1: 2021.8.25: logging changes to reduce disk writes
+	1.5.0: 2021.8.30: added anti-spam measures, split the program into modules
+	1.5.1: 2021.9.1: fix concurrent map writes */
+	const vnum string = "1.5.1 (2021.9.1)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -280,9 +281,7 @@ func main() {
 	// Set output of logs to f
 	defer logf.Close()
 	log.SetOutput(logf)
-
-	go log.Println("🤖 Bot started at", time.Now())
-	go log.Println("go-resize-bot", vnum)
+	go log.Printf("🤖 [%s] Bot started at %d", vnum, time.Now())
 
 	// Load (or create) config
 	config := utils.LoadConfig()
