@@ -3,15 +3,16 @@ package utils
 import (
 	"fmt"
 	"log"
-	"time"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
 )
 
 type AntiSpam struct {
-	// Global struct keeping track of banned chats and per-chat activity
+	/* In-memory struct keeping track of banned chats and per-chat activity */
 	ChatBanned                map[int]bool          // Simple "if ChatBanned[chat] { do }" checks
 	ChatBannedUntilTimestamp  map[int]int           // How long banned chats are banned for
 	ChatConversionLog         map[int]ConversionLog // map chat ID to a ConversionLog struct
@@ -20,7 +21,7 @@ type AntiSpam struct {
 }
 
 type ConversionLog struct {
-	// Per-chat in-struct keeping track of per-chat activity
+	/* Per-chat struct keeping track of activity for spam management */
 	ConversionCount             int   // Image conversion count
 	ConversionTimestamps 	    []int // Trailing timestamps of converted images
 	NextAllowedCommandTimestamp int64 // Next time the chat is allowed to convert an image
@@ -29,46 +30,56 @@ type ConversionLog struct {
 
 func CleanConversionLogs(spam *AntiSpam) {
 	/* Used to periodically clean the conversion log, beacause
-	many users may never reach the 100-image hourly conversion limit. */
-
-	// Keep track of statistics
-	cleanedArrays, cleanedEntries := 0, 0
-
-	// Timestamp range
-	trailingHour := int(time.Now().Unix() - 3600)
+	many users may never reach the x-image hourly conversion limit. */
 
 	// Lock struct to avoid concurrent writes
 	spam.Mutex.Lock()
 
-	for chat, conversionLog := range spam.ChatConversionLog {
-		if conversionLog.ConversionCount != 0 {
-			if conversionLog.ConversionTimestamps[conversionLog.ConversionCount - 1] <= trailingHour {
-				// Keep track of stats
-				cleanedArrays++
-				cleanedEntries += conversionLog.ConversionCount
-
-				// The latest timestamp is older than 3600 seconds: clean the entire array
-				conversionLog.ConversionCount = 0
-				conversionLog.ConversionTimestamps = []int{}
-
-				// Re-assign conversionLog to spam struct
-				spam.ChatConversionLog[chat] = conversionLog
-			}
-		}
+	// Iterate all chats
+	for chat := range spam.ChatConversionLog {
+		RefreshConversions(spam, chat)
 	}
 
 	// Unlock struct
 	spam.Mutex.Unlock()
+}
 
-	if cleanedEntries != 0 {
-		log.Printf("✨ ConversionLogs cleaned! Cleaned %s array(s) and removed %s entries!\n",
-			humanize.Comma(int64(cleanedArrays)),
-			humanize.Comma(int64(cleanedEntries)),
-		)
+func RefreshConversions(spam *AntiSpam, chat int) {
+	/* Count the amount of conversions in the last hour. Used by /help. */
+	if spam.ChatConversionLog[chat].ConversionCount == 0 {
+		return
 	}
+
+	ccLog := spam.ChatConversionLog[chat]
+
+	// Count every timestamp in the last 3600 seconds
+	trailingHour := int(time.Now().Unix() - 3600)
+
+	// Search for last index outside of the trailing 3600 seconds
+	lastOOR := sort.Search(
+		len(ccLog.ConversionTimestamps),
+		func(i int) bool { return ccLog.ConversionTimestamps[i] > trailingHour },
+	)
+
+	if lastOOR == len(ccLog.ConversionTimestamps) {
+		// If we go over the last index, clear the array
+		ccLog.ConversionTimestamps = []int{}
+	} else if lastOOR == 0 {
+		// Nothing to do if all timestamps are within the last trailing hour
+	} else {
+		// Otherwise, we're somewhere inside the array: truncate
+		ccLog.ConversionTimestamps = ccLog.ConversionTimestamps[lastOOR:len(ccLog.ConversionTimestamps)]
+	}
+
+	// Update ConversionCount, push ConversionLog to spam struct
+	ccLog.ConversionCount = len(ccLog.ConversionTimestamps)
+	spam.ChatConversionLog[chat] = ccLog
 }
 
 func ConversionPreHandler(spam *AntiSpam, chat int) bool {
+	/* When a conversion is requested, ConversionPreHandler verifies the
+	chat is not banned and has not exceeded the hourly conversion limit. */
+
 	// Lock spam struct
 	spam.Mutex.Lock()
 
@@ -79,7 +90,7 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 			spam.ChatBannedUntilTimestamp[chat] = 0
 		} else {
 			fmt.Println("🔨 Chat", chat, "is currently banned until",
-				spam.ChatConversionLog[chat].ConversionTimestamps[0],
+				spam.ChatBannedUntilTimestamp[chat],
 			)
 
 			spam.Mutex.Unlock()
@@ -87,40 +98,10 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 		}
 	}
 
-	// Remove every timetsamp older than an hour
-	timeNow := int(time.Now().Unix())
+	// Remove every timestamp older than an hour
+	RefreshConversions(spam, chat)
 	ccLog := spam.ChatConversionLog[chat]
 
-	// Iterate timestamps. TODO: consider binary search
-	i, arrLen, skipTruncate := 0, len(ccLog.ConversionTimestamps), false
-	if arrLen != 0 {
-		for _, timestamp := range ccLog.ConversionTimestamps {
-			if timeNow < timestamp + 3600 {
-				if i == 0 && arrLen == 1 {
-					// Avoid a range error when dealing with single-element arrays
-					skipTruncate = true
-				}
-				break;
-			}
-
-			if i != arrLen - 1 {
-				i++
-			}
-		}
-
-		// Update ConversionTimestamp ranges now that old timestamps are removed
-		if i == arrLen - 1 && arrLen != 1 {
-			// If we reached last index, clean array
-			ccLog.ConversionTimestamps = []int{}
-		} else if !skipTruncate {
-			// Truncate array, unless we're at first index of single-element array
-			ccLog.ConversionTimestamps = ccLog.ConversionTimestamps[i:arrLen]
-		}
-
-		// Update conversionCount and timestamps
-		ccLog.ConversionCount = len(ccLog.ConversionTimestamps)
-	}
-	
 	// If chat has too many conversion within trailing hour, update ChatBannedUntilTimestamp
 	if ccLog.ConversionCount >= int(spam.Rules["ConversionsPerHour"]) {
 		spam.ChatBanned[chat] = true
@@ -152,7 +133,7 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 
 	// No rules broken: update spam log
 	ccLog.ConversionCount++
-	ccLog.ConversionTimestamps = append(ccLog.ConversionTimestamps, timeNow)
+	ccLog.ConversionTimestamps = append(ccLog.ConversionTimestamps, int(time.Now().Unix()))
 	spam.ChatConversionLog[chat] = ccLog
 
 	spam.Mutex.Unlock()
@@ -160,7 +141,8 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 }
 
 func CommandPreHandler(spam *AntiSpam, chat int, sentAt int64) bool {
-	// Verify chat is eligible for command parse
+	/* When user sends a command, verify the chat is eligible for a command parse. */
+
 	chatLog := spam.ChatConversionLog[chat]
 	spam.Mutex.Lock()
 
@@ -184,6 +166,7 @@ func CommandPreHandler(spam *AntiSpam, chat int, sentAt int64) bool {
 }
 
 func RatelimitedMessage(spam *AntiSpam, chat int) string {
+	/* Construct the message for rate-limited chats. */
 	return fmt.Sprintf(
 		"🚦 *Slow down!* You're allowed to convert %d images per hour. %s %s.",
 		spam.Rules["ConversionsPerHour"], "You can convert images again in",

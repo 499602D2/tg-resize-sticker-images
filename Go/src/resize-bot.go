@@ -252,17 +252,18 @@ func setupSignalHandler(config *utils.Config) {
 
 func main() {
 	/* Version history
-	0.0.0: 2021.3.29: started
-	1.0.0: 2021.5.15: first go implementation
-	1.1.0: 2021.5.16: keeping track of unique chats, binsearch
-	1.2.0: 2021.5.17: callback buttons for /stats
-	1.3.0: 2021.5.17: image compression with pngquant
-	1.3.1: 2021.5.19: bug fixes, error handling
-	1.4.0: 2021.8.22: error handling, local API support, handle interrupts 
-	1.4.1: 2021.8.25: logging changes to reduce disk writes
-	1.5.0: 2021.8.30: added anti-spam measures, split the program into modules
-	1.5.1: 2021.9.1: fix concurrent map writes */
-	const vnum string = "1.5.1 (2021.9.1)"
+	0.0.0: 2021.03.29: started
+	1.0.0: 2021.05.15: first go implementation
+	1.1.0: 2021.05.16: keeping track of unique chats, binsearch
+	1.2.0: 2021.05.17: callback buttons for /stats
+	1.3.0: 2021.05.17: image compression with pngquant
+	1.3.1: 2021.05.19: bug fixes, error handling
+	1.4.0: 2021.08.22: error handling, local API support, handle interrupts 
+	1.4.1: 2021.08.25: logging changes to reduce disk writes
+	1.5.0: 2021.08.30: added anti-spam measures, split the program into modules
+	1.5.1: 2021.09.01: fix concurrent map writes 
+	1.5.2: 2021.09.09: improvements to spam management */
+	const vnum string = "1.5.2 (2021.09.09)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -281,7 +282,7 @@ func main() {
 	// Set output of logs to f
 	defer logf.Close()
 	log.SetOutput(logf)
-	go log.Printf("🤖 [%s] Bot started at %d", vnum, time.Now())
+	go log.Printf("🤖 [%s] Bot started at %s", vnum, time.Now())
 
 	// Load (or create) config
 	config := utils.LoadConfig()
@@ -378,13 +379,16 @@ func main() {
 			return
 		}
 
+		// Refresh ConversionCount for chat
+		utils.RefreshConversions(&Spam, message.Sender.ID)
+
 		helpMessage := "🖼 To use the bot, simply send your image to this chat! (JPG/PNG)"
 		helpMessage += fmt.Sprintf(
 			"\n\n*Note:* you can convert up to %d images per hour.",
 			Spam.Rules["ConversionsPerHour"])
 
 		helpMessage += fmt.Sprintf(
-			" You have %s in the last hour.",
+			" You have done %s during the last hour.",
 			english.Plural(
 				Spam.ChatConversionLog[message.Sender.ID].ConversionCount, "conversion", ""))
 
@@ -431,7 +435,7 @@ func main() {
 		}
 
 		// Resize
-		photo, imgCaption, err, pngqC := resizeImage(imgBytes)
+		photo, imgCaption, err, _ := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
@@ -441,9 +445,11 @@ func main() {
 			config.StatConverted += 1
 
 			if success {
+				/*
 				if message.Sender.ID != config.Owner {
 					fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
 				}
+				*/
 			}
 		}
 
@@ -471,7 +477,7 @@ func main() {
 		}
 
 		// Resize
-		photo, imgCaption, err, pngqC := resizeImage(imgBytes)
+		photo, imgCaption, err, _ := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
@@ -481,9 +487,11 @@ func main() {
 			config.StatConverted += 1
 
 			if success {
+				/*
 				if message.Sender.ID != config.Owner {
 					fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
 				}
+				*/
 			}
 		}
 

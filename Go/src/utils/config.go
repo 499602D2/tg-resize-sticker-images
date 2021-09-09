@@ -78,7 +78,7 @@ func LoadConfig() Config {
 				URL:               "https://api.telegram.org",
 			},
 			Owner:           0,
-			ConversionRate:  100,
+			ConversionRate:  60,
 			StatConverted:   0,
 			StatUniqueChats: 0,
 			StatStarted:     time.Now().Unix(),
