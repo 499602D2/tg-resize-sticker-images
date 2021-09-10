@@ -188,11 +188,12 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 			file, err = bot.GetFile(&message.Document.File)
 		}
 
-		defer file.Close()
 		if err != nil {
 			go log.Println("⚠️ Error running GetFile: ", err)
 			return []byte{}, err
 		}
+
+		defer file.Close()
 
 		// Download or copy to buffer, depending on API used
 		var imgBuf bytes.Buffer
@@ -262,8 +263,9 @@ func main() {
 	1.4.1: 2021.08.25: logging changes to reduce disk writes
 	1.5.0: 2021.08.30: added anti-spam measures, split the program into modules
 	1.5.1: 2021.09.01: fix concurrent map writes 
-	1.5.2: 2021.09.09: improvements to spam management */
-	const vnum string = "1.5.2 (2021.09.09)"
+	1.5.2: 2021.09.09: improvements to spam management
+	1.5.3: 2021.09.10: address occasional runtime errors */
+	const vnum string = "1.5.3 (2021.09.10)"
 
 	// Log file
 	wd, _ := os.Getwd()
