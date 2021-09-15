@@ -38,7 +38,7 @@ func DumpConfig(config *Config) {
 	}
 
 	wd, _ := os.Getwd()
-	configf := filepath.Join(wd, "config", "botConfig.json")
+	configf := filepath.Join(wd, "config", "bot-config.json")
 
 	file, err := os.Create(configf)
 	if err != nil {

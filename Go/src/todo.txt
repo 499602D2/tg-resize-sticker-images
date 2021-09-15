@@ -1,0 +1,9 @@
+TODO
+- translate error messages forwarded to user to something simpler
+- don't forward the API key...
+- reset API key
+
+- profile code
+- inspect memory
+	- what isn't being freed: virtual memory keeps going up
+	- images?

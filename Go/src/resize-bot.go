@@ -58,6 +58,9 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 
 	if err != nil {
 		go log.Println("⚠️ Error resizing image:", err)
+		img.Close()
+
+		return nil, fmt.Sprintf("⚠️ Error resizing image: %s", err.Error()), err, ""
 	}
 
 	// Increment compression ratio if size is too large
@@ -72,10 +75,11 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	if err != nil {
 		go log.Println("⚠️ Error encoding image as png: ", err)
 
+		img.Close()
 		if err.Error() == "unsupported image format" {
 			return nil, "⚠️ Unsupported image format!", err, ""
 		} else {
-			return nil, fmt.Sprintf("⚠️ Error: %s", err.Error()), err, ""
+			return nil, fmt.Sprintf("⚠️ Error encoding image: %s", err.Error()), err, ""
 		}
 	}
 
@@ -225,7 +229,7 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 
 	if err != nil {
 		go log.Println("⚠️ Error sending message (notifying user):", err)
-		errorMessage := fmt.Sprintf("🚦 Error sending processed image: %s", err)
+		errorMessage := "🚦 Error sending finished image! Please try again."
 
 		_, err := bot.Send(message.Sender, errorMessage)
 		if err != nil {
@@ -264,8 +268,10 @@ func main() {
 	1.5.0: 2021.08.30: added anti-spam measures, split the program into modules
 	1.5.1: 2021.09.01: fix concurrent map writes 
 	1.5.2: 2021.09.09: improvements to spam management
-	1.5.3: 2021.09.10: address occasional runtime errors */
-	const vnum string = "1.5.3 (2021.09.10)"
+	1.5.3: 2021.09.10: address occasional runtime errors
+	1.5.4: 2021.09.13: tweaks to file names 
+	1.5.5: 2021.09.15: tweaks to error messages, memory */
+	const vnum string = "1.5.5 (2021.09.15)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -275,7 +281,7 @@ func main() {
 	}
 
 	// Set-up logging
-	logFilePath := filepath.Join(logPath, "log.txt")
+	logFilePath := filepath.Join(logPath, "bot-log.log")
 	logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		go log.Println(err)
@@ -397,7 +403,7 @@ func main() {
 		bot.Send(message.Sender, helpMessage, "Markdown")
 
 		if message.Sender.ID != config.Owner {
-			fmt.Println("🙋‍♂️", message.Sender.ID, "requested help!")
+			fmt.Println("🙋", message.Sender.ID, "requested help!")
 		}
 	})
 
