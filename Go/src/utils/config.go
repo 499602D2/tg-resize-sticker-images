@@ -59,7 +59,7 @@ func LoadConfig() Config {
 		_ = os.Mkdir(configPath, os.ModePerm)
 	}
 
-	configf := filepath.Join(configPath, "botConfig.json")
+	configf := filepath.Join(configPath, "bot-config.json")
 	if _, err := os.Stat(configf); os.IsNotExist(err) {
 		// Config doesn't exist: create
 		fmt.Print("\nEnter bot token: ")
