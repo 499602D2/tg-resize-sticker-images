@@ -19,6 +19,12 @@ Both handle images exclusively in memory, and do not store or cache received fil
 ## Compiling
 Compiling the program from source requires [vips](https://libvips.github.io/libvips/), which can be found from most package managers, including apt and homebrew. With vips installed, run `git clone https://github.com/499602D2/tg-resize-sticker-images`, cd into `tg-resize-sticker-images/Go/src` and run `go build -o resize-bot`. Now you can run the program with `./resize-bot`. The program creates two folders, `config` and `logs`.
 
+### Possible compilation errors
+    go build github.com/davidbyttow/govips/v2/vips: invalid flag in pkg-config --cflags: -Xpreprocessor
+
+This can be fixed by running `export CGO_CFLAGS_ALLOW=-Xpreprocessor`.
+
+
 ## Configuration of the Go version: Cloud API server (default)
 Configuration is stored in `botConfig.json`, under the `Go/src/config` folder. If running the program without a local bot API server, the setup is trivial: you're asked to enter your bot's API key, and then you're ready to go.
 

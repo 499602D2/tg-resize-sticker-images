@@ -5,3 +5,4 @@ Go/src/src
 Go/src/logs
 Go/src/config
 .vscode/launch.json
+Go/src/go.sum

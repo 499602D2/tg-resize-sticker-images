@@ -28,6 +28,43 @@ type ConversionLog struct {
 	CommandSpamOffenses         int   // Count of spam offences (not used yet)
 }
 
+func SpamInspectionString(spam *AntiSpam) string {
+	/* A simple function that prints some insights of the AntiSpam struct */
+	inspectionString := ""
+
+	// Amount of chats in AntiSpam
+	chatCount := len(spam.ChatConversionLog)
+
+	// Track some insights
+	maxConversionCount := 0
+	currentlyBannedChats := 0
+	onceBannedChats := 0
+
+	for chat := range spam.ChatConversionLog {
+		if spam.ChatConversionLog[chat].ConversionCount > maxConversionCount {
+			maxConversionCount = spam.ChatConversionLog[chat].ConversionCount
+		}
+
+		// Check if chat is or has been banned
+		banStatus := spam.ChatBannedUntilTimestamp[chat]
+		if banStatus != 0 {
+			if banStatus == -1 {
+				onceBannedChats++
+			} else {
+				currentlyBannedChats++
+			}
+		}
+	}
+
+	inspectionString += "🔬 *Anti-spam statistics*\n"
+	inspectionString += fmt.Sprintf("Chats tracked: %d\n", chatCount)
+	inspectionString += fmt.Sprintf("Max conversions: %d\n", maxConversionCount)
+	inspectionString += fmt.Sprintf("Chats banned: %d\n", onceBannedChats)
+	inspectionString += fmt.Sprintf("Currently banned: %d", currentlyBannedChats)
+
+	return inspectionString
+}
+
 func CleanConversionLogs(spam *AntiSpam) {
 	/* Used to periodically clean the conversion log, beacause
 	many users may never reach the x-image hourly conversion limit. */
@@ -86,8 +123,9 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 	// Check if user is banned
 	if spam.ChatBanned[chat] {
 		if spam.ChatBannedUntilTimestamp[chat] <= int(time.Now().Unix()) {
+			log.Println("⌛️ Chat", chat, "unbanned!")
 			spam.ChatBanned[chat] = false
-			spam.ChatBannedUntilTimestamp[chat] = 0
+			spam.ChatBannedUntilTimestamp[chat] = -1
 		} else {
 			fmt.Println("🔨 Chat", chat, "is currently banned until",
 				spam.ChatBannedUntilTimestamp[chat],

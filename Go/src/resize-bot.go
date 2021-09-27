@@ -40,6 +40,9 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 		return nil, errorMsg, err, ""
 	}
 
+	// defer closing for later
+	defer img.Close()
+
 	// Dimensions for resize (int)
 	w, h := img.Width(), img.Height()
 
@@ -58,8 +61,6 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 
 	if err != nil {
 		go log.Println("⚠️ Error resizing image:", err)
-		img.Close()
-
 		return nil, fmt.Sprintf("⚠️ Error resizing image: %s", err.Error()), err, ""
 	}
 
@@ -75,7 +76,6 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 	if err != nil {
 		go log.Println("⚠️ Error encoding image as png: ", err)
 
-		img.Close()
 		if err.Error() == "unsupported image format" {
 			return nil, "⚠️ Unsupported image format!", err, ""
 		} else {
@@ -134,7 +134,6 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
 	}
 
-	img.Close()
 	return pngBuff, imgCaption, nil, pngqStr
 }
 
@@ -200,6 +199,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 		defer file.Close()
 
 		// Download or copy to buffer, depending on API used
+		// copy file contents to imgBuf
 		var imgBuf bytes.Buffer
 		_, err = io.Copy(&imgBuf, file)
 
@@ -270,8 +270,9 @@ func main() {
 	1.5.2: 2021.09.09: improvements to spam management
 	1.5.3: 2021.09.10: address occasional runtime errors
 	1.5.4: 2021.09.13: tweaks to file names 
-	1.5.5: 2021.09.15: tweaks to error messages, memory */
-	const vnum string = "1.5.5 (2021.09.15)"
+	1.5.5: 2021.09.15: tweaks to error messages, memory 
+	1.5.6: 2021.09.27: logging improvements, add anti-spam insights */
+	const vnum string = "1.5.6 (2021.09.27)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -424,6 +425,27 @@ func main() {
 		if message.Sender.ID != config.Owner {
 			fmt.Println("📊", message.Sender.ID, "requested to view stats!")
 		}
+	})
+
+	// Command handler for anti-spam statistics
+	bot.Handle("/spam", func(message *tb.Message) {
+		// Check for owner status
+		if message.Sender.ID != config.Owner {
+			fmt.Println("🤨", message.Sender.ID, "tried to use /spam command")
+			return
+		}
+
+		// Anti-spam
+		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
+			return
+		}
+
+		// Get string
+		msg := utils.SpamInspectionString(&Spam)
+
+		// Send
+		sopts := tb.SendOptions{ ParseMode: "Markdown" }
+		bot.Send(message.Sender, msg, &sopts)
 	})
 
 	// Register photo handler
