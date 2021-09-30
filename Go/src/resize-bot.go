@@ -271,8 +271,9 @@ func main() {
 	1.5.3: 2021.09.10: address occasional runtime errors
 	1.5.4: 2021.09.13: tweaks to file names 
 	1.5.5: 2021.09.15: tweaks to error messages, memory 
-	1.5.6: 2021.09.27: logging improvements, add anti-spam insights */
-	const vnum string = "1.5.6 (2021.09.27)"
+	1.5.6: 2021.09.27: logging improvements, add anti-spam insights
+	1.5.7: 2021.09.30: callbacks for /spam, logging */
+	const vnum string = "1.5.7 (2021.09.30)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -440,11 +441,10 @@ func main() {
 			return
 		}
 
-		// Get string
-		msg := utils.SpamInspectionString(&Spam)
+		// Get string, send options
+		msg, sopts := utils.SpamInspectionString(&Spam)
 
 		// Send
-		sopts := tb.SendOptions{ ParseMode: "Markdown" }
 		bot.Send(message.Sender, msg, &sopts)
 	})
 
@@ -553,6 +553,19 @@ func main() {
 			resp := tb.CallbackResponse{
 				CallbackID: cb.ID,
 				Text:       "🔄 Statistics refreshed!",
+				ShowAlert:  false,
+			}
+
+			bot.Respond(cb, &resp)
+		} else if cb.Data == "spam/refresh" {
+			// Get string, send options
+			msg, sopts := utils.SpamInspectionString(&Spam)
+
+			bot.Edit(cb.Message, msg, &sopts)
+
+			resp := tb.CallbackResponse{
+				CallbackID: cb.ID,
+				Text:       "🔄 Information refreshed!",
 				ShowAlert:  false,
 			}
 

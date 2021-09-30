@@ -9,6 +9,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
+	tb "gopkg.in/tucnak/telebot.v2"
 )
 
 type AntiSpam struct {
@@ -28,7 +29,7 @@ type ConversionLog struct {
 	CommandSpamOffenses         int   // Count of spam offences (not used yet)
 }
 
-func SpamInspectionString(spam *AntiSpam) string {
+func SpamInspectionString(spam *AntiSpam) (string, tb.SendOptions) {
 	/* A simple function that prints some insights of the AntiSpam struct */
 	inspectionString := ""
 
@@ -62,7 +63,14 @@ func SpamInspectionString(spam *AntiSpam) string {
 	inspectionString += fmt.Sprintf("Chats banned: %d\n", onceBannedChats)
 	inspectionString += fmt.Sprintf("Currently banned: %d", currentlyBannedChats)
 
-	return inspectionString
+	// Construct keyboard for refresh functionality
+	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh", Data: "spam/refresh"}}}
+	rplm := tb.ReplyMarkup{InlineKeyboard: kb}
+
+	// Add Markdown parsing for a pretty link embed + keyboard
+	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
+
+	return inspectionString, sopts
 }
 
 func CleanConversionLogs(spam *AntiSpam) {
@@ -106,6 +114,16 @@ func RefreshConversions(spam *AntiSpam, chat int) {
 	} else {
 		// Otherwise, we're somewhere inside the array: truncate
 		ccLog.ConversionTimestamps = ccLog.ConversionTimestamps[lastOOR:len(ccLog.ConversionTimestamps)]
+	}
+
+	// Check if user is banned
+	if spam.ChatBanned[chat] {
+		if spam.ChatBannedUntilTimestamp[chat] <= int(time.Now().Unix()) {
+			spam.ChatBanned[chat] = false
+			spam.ChatBannedUntilTimestamp[chat] = -1
+
+			log.Println("⌛️ Chat", chat, "unbanned in RefreshConversions!")
+		}
 	}
 
 	// Update ConversionCount, push ConversionLog to spam struct
