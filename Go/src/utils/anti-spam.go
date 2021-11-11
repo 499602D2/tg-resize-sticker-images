@@ -14,17 +14,17 @@ import (
 
 type AntiSpam struct {
 	/* In-memory struct keeping track of banned chats and per-chat activity */
-	ChatBanned                map[int]bool          // Simple "if ChatBanned[chat] { do }" checks
-	ChatBannedUntilTimestamp  map[int]int           // How long banned chats are banned for
-	ChatConversionLog         map[int]ConversionLog // map chat ID to a ConversionLog struct
-	Rules                     map[string]int64      // Arbitrary rules for code flexibility
-	Mutex                     sync.Mutex            // Mutex to avoid concurrent map writes
+	ChatBanned               map[int]bool          // Simple "if ChatBanned[chat] { do }" checks
+	ChatBannedUntilTimestamp map[int]int           // How long banned chats are banned for
+	ChatConversionLog        map[int]ConversionLog // Map chat ID to a ConversionLog struct
+	Rules                    map[string]int64      // Arbitrary rules for code flexibility
+	Mutex                    sync.Mutex            // Mutex to avoid concurrent map writes
 }
 
 type ConversionLog struct {
 	/* Per-chat struct keeping track of activity for spam management */
 	ConversionCount             int   // Image conversion count
-	ConversionTimestamps 	    []int // Trailing timestamps of converted images
+	ConversionTimestamps        []int // Trailing timestamps of converted images
 	NextAllowedCommandTimestamp int64 // Next time the chat is allowed to convert an image
 	CommandSpamOffenses         int   // Count of spam offences (not used yet)
 }
@@ -37,29 +37,35 @@ func SpamInspectionString(spam *AntiSpam) (string, tb.SendOptions) {
 	chatCount := len(spam.ChatConversionLog)
 
 	// Track some insights
-	maxConversionCount := 0
-	currentlyBannedChats := 0
-	onceBannedChats := 0
+	totalConversions := 0     // Total conversion across all chats
+	maxConversionCount := 0   // Most per-chat conversions in the last 60 minutes
+	onceBannedChats := 0      // How many chats have been banned at some point
+	currentlyBannedChats := 0 // How many chats are currently banned
 
+	// Iterate over all chats that are tracked
 	for chat := range spam.ChatConversionLog {
+		totalConversions += spam.ChatConversionLog[chat].ConversionCount
 		if spam.ChatConversionLog[chat].ConversionCount > maxConversionCount {
 			maxConversionCount = spam.ChatConversionLog[chat].ConversionCount
 		}
 
-		// Check if chat is or has been banned
+		// Check if chat is, or has been, banned
 		banStatus := spam.ChatBannedUntilTimestamp[chat]
 		if banStatus != 0 {
-			if banStatus == -1 {
-				onceBannedChats++
-			} else {
+			onceBannedChats++
+			if banStatus == 1 {
 				currentlyBannedChats++
 			}
 		}
 	}
 
-	inspectionString += "🔬 *Anti-spam statistics*\n"
-	inspectionString += fmt.Sprintf("Chats tracked: %d\n", chatCount)
+	// Construct the spam message
+	inspectionString += "🖼 *Conversion anti-spam statistics*\n"
+	inspectionString += fmt.Sprintf("Conversions (60 min): %d\n", totalConversions)
 	inspectionString += fmt.Sprintf("Max conversions: %d\n", maxConversionCount)
+
+	inspectionString += "\n🔎 *Chat anti-spam statistics*\n"
+	inspectionString += fmt.Sprintf("Chats tracked: %d\n", chatCount)
 	inspectionString += fmt.Sprintf("Chats banned: %d\n", onceBannedChats)
 	inspectionString += fmt.Sprintf("Currently banned: %d", currentlyBannedChats)
 
@@ -80,7 +86,7 @@ func CleanConversionLogs(spam *AntiSpam) {
 	// Lock struct to avoid concurrent writes
 	spam.Mutex.Lock()
 
-	// Iterate all chats
+	// Iterate all chats, run RefreshConversions
 	for chat := range spam.ChatConversionLog {
 		RefreshConversions(spam, chat)
 	}
@@ -90,15 +96,20 @@ func CleanConversionLogs(spam *AntiSpam) {
 }
 
 func RefreshConversions(spam *AntiSpam, chat int) {
-	/* Count the amount of conversions in the last hour. Used by /help. */
+	/* Count the amount of conversions in the last hour. Used by /help and /spam, plus auto-ran. */
 	if spam.ChatConversionLog[chat].ConversionCount == 0 {
+		// If more than 3600 seconds since last command, remove entry
+		if spam.ChatConversionLog[chat].NextAllowedCommandTimestamp <= time.Now().Unix()-3600 {
+			delete(spam.ChatConversionLog, chat)
+		}
 		return
 	}
 
+	// Extract chat's conversion log
 	ccLog := spam.ChatConversionLog[chat]
 
 	// Count every timestamp in the last 3600 seconds
-	trailingHour := int(time.Now().Unix() - 3600)
+	trailingHour := int(time.Now().Unix() - 3600) // TODO change to 3600
 
 	// Search for last index outside of the trailing 3600 seconds
 	lastOOR := sort.Search(
@@ -123,6 +134,14 @@ func RefreshConversions(spam *AntiSpam, chat int) {
 			spam.ChatBannedUntilTimestamp[chat] = -1
 
 			log.Println("⌛️ Chat", chat, "unbanned in RefreshConversions!")
+		}
+	}
+
+	// If the chat has 0 conversions after refresh, and no fresh command calls, delete it
+	if len(ccLog.ConversionTimestamps) == 0 {
+		if ccLog.NextAllowedCommandTimestamp <= time.Now().Unix()-3600 {
+			delete(spam.ChatConversionLog, chat)
+			return
 		}
 	}
 
@@ -177,7 +196,7 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 				chat, len(ccLog.ConversionTimestamps))
 		}
 	}
-	
+
 	// Push updated ConversionLog to spam struct
 	spam.ChatConversionLog[chat] = ccLog
 

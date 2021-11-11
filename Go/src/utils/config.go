@@ -14,21 +14,21 @@ import (
 )
 
 type Config struct {
-	Token           	string  // Bot API token
-	API                 API     // See API struct
-	Owner           	int     // Owner of the bot: skips logging
-	ConversionRate      int     // Rate-limit for conversions per hour
-	StatConverted   	int     // Keep track of converted images
-	StatUniqueChats 	int     // Keep track of count of unique chats
-	StatStarted     	int64   // Unix timestamp of startup time
-	UniqueUsers     	[]int   // List of all unique chats
+	Token           string // Bot API token
+	API             API    // See API struct
+	Owner           int    // Owner of the bot: skips logging
+	ConversionRate  int    // Rate-limit for conversions per hour
+	StatConverted   int    // Keep track of converted images
+	StatUniqueChats int    // Keep track of count of unique chats
+	StatStarted     int64  // Unix timestamp of startup time
+	UniqueUsers     []int  // List of all unique chats
 }
 
 type API struct {
-	LocalAPIEnabled     bool    // Is the local API in use?
-	CloudAPILoggedOut   bool    // Logged out from the cloud API?
-	LocalWorkingDir     string  // Local working directory
-	URL                 string  // API endpoint URL
+	LocalAPIEnabled   bool   // Is the local API in use?
+	CloudAPILoggedOut bool   // Logged out from the cloud API?
+	LocalWorkingDir   string // Local working directory
+	URL               string // API endpoint URL
 }
 
 func DumpConfig(config *Config) {
@@ -70,8 +70,8 @@ func LoadConfig() Config {
 
 		// Create, marshal
 		config := Config{
-			Token:           botToken,
-			API:             API{
+			Token: botToken,
+			API: API{
 				LocalAPIEnabled:   false,
 				CloudAPILoggedOut: false,
 				LocalWorkingDir:   "working/dir/on/server",

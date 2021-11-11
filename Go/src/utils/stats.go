@@ -10,30 +10,30 @@ import (
 )
 
 func UpdateUniqueStat(uid *int, config *Config) {
-	// uarr is always sorted when performing check
+	// User array is always sorted when performing check
 	i := sort.Search(
 		len(config.UniqueUsers),
 		func(i int) bool { return config.UniqueUsers[i] >= *uid },
 	)
 
 	if i < len(config.UniqueUsers) && config.UniqueUsers[i] == *uid {
-		// uid exists in the array
+		// UID exists in the array
 		return
 	} else {
 		if len(config.UniqueUsers) == i {
-			// nil or empty slice, or after last element
+			// Nil or empty slice, or after last element
 			config.UniqueUsers = append(config.UniqueUsers, *uid)
 		} else if i == 0 {
-			// if zeroth index, append
+			// If zeroth index, append
 			config.UniqueUsers = append([]int{*uid}, config.UniqueUsers...)
 		} else {
-			// otherwise, we're inserting in the middle of the array
+			// Otherwise, we're inserting in the middle of the array
 			config.UniqueUsers = append(config.UniqueUsers[:i+1], config.UniqueUsers[i:]...)
 			config.UniqueUsers[i] = *uid
 		}
 	}
 
-	// stat++
+	// Increment unique chat count
 	config.StatUniqueChats++
 }
 

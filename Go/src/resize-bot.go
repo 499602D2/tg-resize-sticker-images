@@ -19,14 +19,15 @@ import (
 
 	"tg-resize-sticker-images/utils"
 
-	"github.com/dustin/go-humanize/english"
 	"github.com/davidbyttow/govips/v2/vips"
+	"github.com/dustin/go-humanize/english"
 	"github.com/go-co-op/gocron"
+
 	pngquant "github.com/yusukebe/go-pngquant"
 	tb "gopkg.in/tucnak/telebot.v2"
 )
 
-func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
+func resizeImage(imgBytes []byte) ([]byte, string, string, error) {
 	// Build image from buffer
 	img, err := vips.NewImageFromBuffer(imgBytes)
 	if err != nil {
@@ -37,7 +38,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 			errorMsg += " Please send jpg/png images."
 		}
 
-		return nil, errorMsg, err, ""
+		return nil, errorMsg, "", err
 	}
 
 	// defer closing for later
@@ -61,7 +62,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 
 	if err != nil {
 		go log.Println("⚠️ Error resizing image:", err)
-		return nil, fmt.Sprintf("⚠️ Error resizing image: %s", err.Error()), err, ""
+		return nil, fmt.Sprintf("⚠️ Error resizing image: %s", err.Error()), "", err
 	}
 
 	// Increment compression ratio if size is too large
@@ -77,9 +78,9 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 		go log.Println("⚠️ Error encoding image as png: ", err)
 
 		if err.Error() == "unsupported image format" {
-			return nil, "⚠️ Unsupported image format!", err, ""
+			return nil, "⚠️ Unsupported image format!", "", err
 		} else {
-			return nil, fmt.Sprintf("⚠️ Error encoding image: %s", err.Error()), err, ""
+			return nil, fmt.Sprintf("⚠️ Error encoding image: %s", err.Error()), "", err
 		}
 	}
 
@@ -134,7 +135,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, error, string) {
 		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
 	}
 
-	return pngBuff, imgCaption, nil, pngqStr
+	return pngBuff, imgCaption, pngqStr, nil
 }
 
 func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.Config) ([]byte, error) {
@@ -212,7 +213,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 	}
 }
 
-func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) (bool) {
+func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) bool {
 	// Send as a document: create object
 	doc := tb.Document{
 		File:     tb.FromReader(bytes.NewReader(photo)),
@@ -222,7 +223,7 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 	}
 
 	// Disable notifications
-	sendOpts := tb.SendOptions{ DisableNotification: true }
+	sendOpts := tb.SendOptions{DisableNotification: true}
 
 	// Send
 	_, err := doc.Send(bot, message.Sender, &sendOpts)
@@ -263,17 +264,18 @@ func main() {
 	1.2.0: 2021.05.17: callback buttons for /stats
 	1.3.0: 2021.05.17: image compression with pngquant
 	1.3.1: 2021.05.19: bug fixes, error handling
-	1.4.0: 2021.08.22: error handling, local API support, handle interrupts 
+	1.4.0: 2021.08.22: error handling, local API support, handle interrupts
 	1.4.1: 2021.08.25: logging changes to reduce disk writes
 	1.5.0: 2021.08.30: added anti-spam measures, split the program into modules
-	1.5.1: 2021.09.01: fix concurrent map writes 
+	1.5.1: 2021.09.01: fix concurrent map writes
 	1.5.2: 2021.09.09: improvements to spam management
 	1.5.3: 2021.09.10: address occasional runtime errors
-	1.5.4: 2021.09.13: tweaks to file names 
-	1.5.5: 2021.09.15: tweaks to error messages, memory 
+	1.5.4: 2021.09.13: tweaks to file names
+	1.5.5: 2021.09.15: tweaks to error messages, memory
 	1.5.6: 2021.09.27: logging improvements, add anti-spam insights
-	1.5.7: 2021.09.30: callbacks for /spam, logging */
-	const vnum string = "1.5.7 (2021.09.30)"
+	1.5.7: 2021.09.30: callbacks for /spam, logging
+	1.5.8: 2021.11.11: improvements to /spam command, bump telebot + core */
+	const vnum string = "1.5.8 (2021.11.11)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -319,7 +321,7 @@ func main() {
 		bot, err := tb.NewBot(tb.Settings{
 			URL:    "https://api.telegram.org",
 			Token:  config.Token,
-			Poller: &tb.LongPoller{ Timeout: 10 * time.Second },
+			Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 		})
 
 		if err != nil {
@@ -355,7 +357,7 @@ func main() {
 	bot, err := tb.NewBot(tb.Settings{
 		URL:    config.API.URL,
 		Token:  config.Token,
-		Poller: &tb.LongPoller{ Timeout: 10 * time.Second },
+		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	})
 
 	if err != nil {
@@ -441,6 +443,9 @@ func main() {
 			return
 		}
 
+		// Refresh spam struct
+		utils.CleanConversionLogs(&Spam)
+
 		// Get string, send options
 		msg, sopts := utils.SpamInspectionString(&Spam)
 
@@ -465,7 +470,7 @@ func main() {
 		}
 
 		// Resize
-		photo, imgCaption, err, _ := resizeImage(imgBytes)
+		photo, imgCaption, _, err := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
@@ -476,9 +481,9 @@ func main() {
 
 			if success {
 				/*
-				if message.Sender.ID != config.Owner {
-					fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
-				}
+					if message.Sender.ID != config.Owner {
+						fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+					}
 				*/
 			}
 		}
@@ -507,7 +512,7 @@ func main() {
 		}
 
 		// Resize
-		photo, imgCaption, err, _ := resizeImage(imgBytes)
+		photo, imgCaption, _, err := resizeImage(imgBytes)
 
 		// Send
 		if err != nil {
@@ -518,9 +523,9 @@ func main() {
 
 			if success {
 				/*
-				if message.Sender.ID != config.Owner {
-					fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
-				}
+					if message.Sender.ID != config.Owner {
+						fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
+					}
 				*/
 			}
 		}
@@ -558,6 +563,15 @@ func main() {
 
 			bot.Respond(cb, &resp)
 		} else if cb.Data == "spam/refresh" {
+			// Check for owner status
+			if cb.Sender.ID != config.Owner {
+				fmt.Println("🤨", cb.Sender.ID, "tried to use spam/refresh callback")
+				return
+			}
+
+			// Refresh spam struct
+			utils.CleanConversionLogs(&Spam)
+
 			// Get string, send options
 			msg, sopts := utils.SpamInspectionString(&Spam)
 
