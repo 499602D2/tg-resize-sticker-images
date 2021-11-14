@@ -10,18 +10,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Config struct {
-	Token           string // Bot API token
-	API             API    // See API struct
-	Owner           int    // Owner of the bot: skips logging
-	ConversionRate  int    // Rate-limit for conversions per hour
-	StatConverted   int    // Keep track of converted images
-	StatUniqueChats int    // Keep track of count of unique chats
-	StatStarted     int64  // Unix timestamp of startup time
-	UniqueUsers     []int  // List of all unique chats
+	Token           string     // Bot API token
+	API             API        // See API struct
+	Owner           int        // Owner of the bot: skips logging
+	ConversionRate  int        // Rate-limit for conversions per hour
+	StatConverted   int        // Keep track of converted images
+	StatUniqueChats int        // Keep track of count of unique chats
+	StatStarted     int64      // Unix timestamp of startup time
+	UniqueUsers     []int      // List of all unique chats
+	Mutex           sync.Mutex // Mutex to avoid concurrent writes
 }
 
 type API struct {
@@ -32,7 +34,9 @@ type API struct {
 }
 
 func DumpConfig(config *Config) {
-	jsonbytes, err := json.MarshalIndent(*config, "", "\t")
+	// Dumps config to disk
+	jsonbytes, err := json.MarshalIndent(config, "", "\t")
+
 	if err != nil {
 		log.Printf("⚠️ Error marshaling json! Err: %s\n", err)
 	}
@@ -51,7 +55,9 @@ func DumpConfig(config *Config) {
 	file.Close()
 }
 
-func LoadConfig() Config {
+func LoadConfig() *Config {
+	/* Loads the config, returns a pointer to it */
+
 	// Get log file's path relative to working dir
 	wd, _ := os.Getwd()
 	configPath := filepath.Join(wd, "config")
@@ -86,7 +92,7 @@ func LoadConfig() Config {
 		}
 
 		go DumpConfig(&config)
-		return config
+		return &config
 	}
 
 	// Config exists: load
@@ -118,5 +124,5 @@ func LoadConfig() Config {
 	// Sort UniqueChats, as they may be unsorted
 	sort.Ints(config.UniqueUsers)
 
-	return config
+	return &config
 }

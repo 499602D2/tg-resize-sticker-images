@@ -9,7 +9,16 @@ import (
 	tb "gopkg.in/tucnak/telebot.v2"
 )
 
+func StatsPlusOneConversion(config *Config) {
+	config.Mutex.Lock()
+	config.StatConverted++
+	config.Mutex.Unlock()
+}
+
 func UpdateUniqueStat(uid *int, config *Config) {
+	// Lock
+	config.Mutex.Lock()
+
 	// User array is always sorted when performing check
 	i := sort.Search(
 		len(config.UniqueUsers),
@@ -18,6 +27,7 @@ func UpdateUniqueStat(uid *int, config *Config) {
 
 	if i < len(config.UniqueUsers) && config.UniqueUsers[i] == *uid {
 		// UID exists in the array
+		config.Mutex.Unlock()
 		return
 	} else {
 		if len(config.UniqueUsers) == i {
@@ -35,6 +45,9 @@ func UpdateUniqueStat(uid *int, config *Config) {
 
 	// Increment unique chat count
 	config.StatUniqueChats++
+
+	// Unlock
+	config.Mutex.Unlock()
 }
 
 func BuildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {

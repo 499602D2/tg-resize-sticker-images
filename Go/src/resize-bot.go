@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,7 +28,71 @@ import (
 	tb "gopkg.in/tucnak/telebot.v2"
 )
 
-func resizeImage(imgBytes []byte) ([]byte, string, string, error) {
+type Message struct {
+	recipient *tb.User // Recipient of the message
+	bytes     *[]byte  // Photo, as a byte array
+	caption   string   // Caption for the photo
+}
+
+type SendQueue struct {
+	/* Enforces a rate-limiter to stay within Telegram's send-rate boundaries */
+	messagesPerSecond float32    // Messages-per-second limit
+	messageQueue      []Message  // Queue of photos to send
+	Mutex             sync.Mutex // Mutex to avoid concurrent writes
+}
+
+func addToQueue(queue *SendQueue, message *Message) {
+	queue.Mutex.Lock()
+	queue.messageQueue = append(queue.messageQueue, *message)
+	queue.Mutex.Unlock()
+}
+
+func messageSender(bot *tb.Bot, queue *SendQueue, config *utils.Config) {
+	/* Function clears the SendQueue and stays within API limits while doing so */
+	for {
+		// If queue is not empty, clear it
+		if len(queue.messageQueue) != 0 {
+			// Lock sendQueue for parsing
+			queue.Mutex.Lock()
+
+			// Iterate over queue
+			for i, msg := range queue.messageQueue {
+				// If nil bytes, we are only sending text
+				if msg.bytes == nil {
+					bot.Send(msg.recipient, msg.caption)
+				} else {
+					sendDocument(bot, msg, config)
+				}
+
+				// Sleep long enough to stay within API limits: convert messagesPerSecond to ms
+				if i < len(queue.messageQueue)-1 {
+					time.Sleep(time.Millisecond * time.Duration(1.0/queue.messagesPerSecond*1000.0))
+				}
+			}
+
+			// Clear queue
+			queue.messageQueue = nil
+
+			// Batch send done, unlock sendQueue
+			queue.Mutex.Unlock()
+		}
+
+		// Sleep while waiting for updates
+		time.Sleep(time.Millisecond * 500)
+	}
+}
+
+func resizeImage(imgBytes []byte) (Message, error) {
+	/* Resizes an image in a byte buffer
+
+	Inputs:
+		imgBytes: the image to resize
+
+	Outputs:
+		Message: a message object containing the image and caption
+		error: errors encountered during resize
+	*/
+
 	// Build image from buffer
 	img, err := vips.NewImageFromBuffer(imgBytes)
 	if err != nil {
@@ -38,7 +103,7 @@ func resizeImage(imgBytes []byte) ([]byte, string, string, error) {
 			errorMsg += " Please send jpg/png images."
 		}
 
-		return nil, errorMsg, "", err
+		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
 	}
 
 	// defer closing for later
@@ -62,7 +127,8 @@ func resizeImage(imgBytes []byte) ([]byte, string, string, error) {
 
 	if err != nil {
 		go log.Println("⚠️ Error resizing image:", err)
-		return nil, fmt.Sprintf("⚠️ Error resizing image: %s", err.Error()), "", err
+		errorMsg := fmt.Sprintf("⚠️ Error resizing image: %s", err.Error())
+		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
 	}
 
 	// Increment compression ratio if size is too large
@@ -77,20 +143,21 @@ func resizeImage(imgBytes []byte) ([]byte, string, string, error) {
 	if err != nil {
 		go log.Println("⚠️ Error encoding image as png: ", err)
 
+		var errorMsg string
 		if err.Error() == "unsupported image format" {
-			return nil, "⚠️ Unsupported image format!", "", err
+			errorMsg = "⚠️ Unsupported image format!"
 		} else {
-			return nil, fmt.Sprintf("⚠️ Error encoding image: %s", err.Error()), "", err
+			errorMsg = fmt.Sprintf("⚠️ Error encoding image: %s", err.Error())
 		}
+
+		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
 	}
 
 	// Did we reach the target file size?
 	compressionFailed := len(pngBuff)/1024 >= 512
-	pngqStr := ""
 
 	// If compression fails, run the image through pngquant
 	if compressionFailed {
-		pngqStr = " [Compressed]"
 		expParams := vips.ExportParams{
 			Format:        vips.ImageTypePNG,
 			StripMetadata: true,
@@ -135,7 +202,8 @@ func resizeImage(imgBytes []byte) ([]byte, string, string, error) {
 		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
 	}
 
-	return pngBuff, imgCaption, pngqStr, nil
+	message := Message{recipient: nil, bytes: &pngBuff, caption: imgCaption}
+	return message, nil
 }
 
 func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.Config) ([]byte, error) {
@@ -213,11 +281,11 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 	}
 }
 
-func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption string) bool {
+func sendDocument(bot *tb.Bot, msg Message, config *utils.Config) {
 	// Send as a document: create object
 	doc := tb.Document{
-		File:     tb.FromReader(bytes.NewReader(photo)),
-		Caption:  imgCaption,
+		File:     tb.FromReader(bytes.NewReader(*msg.bytes)),
+		Caption:  msg.caption,
 		MIME:     "image/png",
 		FileName: fmt.Sprintf("resized-image-%d.png", time.Now().Unix()),
 	}
@@ -226,21 +294,21 @@ func sendDocument(bot *tb.Bot, message *tb.Message, photo []byte, imgCaption str
 	sendOpts := tb.SendOptions{DisableNotification: true}
 
 	// Send
-	_, err := doc.Send(bot, message.Sender, &sendOpts)
+	_, err := doc.Send(bot, msg.recipient, &sendOpts)
 
 	if err != nil {
 		go log.Println("⚠️ Error sending message (notifying user):", err)
 		errorMessage := "🚦 Error sending finished image! Please try again."
 
-		_, err := bot.Send(message.Sender, errorMessage)
+		_, err := bot.Send(msg.recipient, errorMessage)
 		if err != nil {
 			go log.Println("\tUnable to notify user:", err)
 		}
 
-		return false
+		return
 	}
 
-	return true
+	go utils.StatsPlusOneConversion(config)
 }
 
 func setupSignalHandler(config *utils.Config) {
@@ -274,8 +342,9 @@ func main() {
 	1.5.5: 2021.09.15: tweaks to error messages, memory
 	1.5.6: 2021.09.27: logging improvements, add anti-spam insights
 	1.5.7: 2021.09.30: callbacks for /spam, logging
-	1.5.8: 2021.11.11: improvements to /spam command, bump telebot + core */
-	const vnum string = "1.5.8 (2021.11.11)"
+	1.5.8: 2021.11.11: improvements to /spam command, bump telebot + core
+	1.6.0: 2021.11.13: implement a message send queue, locks for config */
+	const vnum string = "1.6.0 (2021.11.13)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -311,7 +380,7 @@ func main() {
 	Spam.Rules["TimeBetweenCommands"] = 2
 
 	// Setup signal handler
-	setupSignalHandler(&config)
+	setupSignalHandler(config)
 
 	// Verify we're logged out if we're using the cloud API
 	if config.API.LocalAPIEnabled && !config.API.CloudAPILoggedOut {
@@ -341,7 +410,7 @@ func main() {
 
 		// Success: update config, dump
 		config.API.CloudAPILoggedOut = true
-		utils.DumpConfig(&config)
+		utils.DumpConfig(config)
 
 		go log.Println("✅ Config updated to use local API!")
 
@@ -354,6 +423,7 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Create bot
 	bot, err := tb.NewBot(tb.Settings{
 		URL:    config.API.URL,
 		Token:  config.Token,
@@ -365,9 +435,17 @@ func main() {
 		return
 	}
 
+	// Setup messageSender, run messageSender in a goroutine
+	sendQueue := SendQueue{messagesPerSecond: 30.0}
+	go messageSender(bot, &sendQueue, config)
+
 	// https://pkg.go.dev/github.com/davidbyttow/govips/v2@v2.6.0/vips#LoggingSettings
 	vips.LoggingSettings(nil, vips.LogLevel(3))
 	vips.Startup(nil)
+
+	// Keep track of the last chat to convert an image;
+	// this should reduce UpdateUniqueStat checks a lot
+	var lastUser int
 
 	// Command handler for /start
 	bot.Handle("/start", func(message *tb.Message) {
@@ -411,10 +489,6 @@ func main() {
 		}
 	})
 
-	// Keep track of the last chat to convert an image;
-	// this should reduce UpdateUniqueStat checks a lot
-	var lastUser int
-
 	// Command handler for /stats
 	bot.Handle("/stats", func(message *tb.Message) {
 		// Anti-spam
@@ -422,7 +496,7 @@ func main() {
 			return
 		}
 
-		msg, sopts := utils.BuildStatsMsg(&config, vnum)
+		msg, sopts := utils.BuildStatsMsg(config, vnum)
 		bot.Send(message.Sender, msg, &sopts)
 
 		if message.Sender.ID != config.Owner {
@@ -432,14 +506,14 @@ func main() {
 
 	// Command handler for anti-spam statistics
 	bot.Handle("/spam", func(message *tb.Message) {
-		// Check for owner status
-		if message.Sender.ID != config.Owner {
-			fmt.Println("🤨", message.Sender.ID, "tried to use /spam command")
+		// Anti-spam
+		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
 			return
 		}
 
-		// Anti-spam
-		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
+		// Check for owner status
+		if message.Sender.ID != config.Owner {
+			fmt.Println("🤨", message.Sender.ID, "tried to use /spam command")
 			return
 		}
 
@@ -463,34 +537,22 @@ func main() {
 		}
 
 		// Download
-		imgBytes, err := getBytes(bot, message, "photo", &config)
+		imgBytes, err := getBytes(bot, message, "photo", config)
 		if err != nil {
 			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
 			return
 		}
 
 		// Resize
-		photo, imgCaption, _, err := resizeImage(imgBytes)
+		msg, _ := resizeImage(imgBytes)
+		msg.recipient = message.Sender
 
-		// Send
-		if err != nil {
-			bot.Send(message.Sender, imgCaption)
-		} else {
-			success := sendDocument(bot, message, photo, imgCaption)
-			config.StatConverted += 1
-
-			if success {
-				/*
-					if message.Sender.ID != config.Owner {
-						fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
-					}
-				*/
-			}
-		}
+		// Add to send queue
+		go addToQueue(&sendQueue, &msg)
 
 		// Update stat for count of unique chats in a goroutine
 		if message.Sender.ID != lastUser {
-			go utils.UpdateUniqueStat(&message.Sender.ID, &config)
+			go utils.UpdateUniqueStat(&message.Sender.ID, config)
 			lastUser = message.Sender.ID
 		}
 	})
@@ -505,34 +567,22 @@ func main() {
 		}
 
 		// Download
-		imgBytes, err := getBytes(bot, message, "document", &config)
+		imgBytes, err := getBytes(bot, message, "document", config)
 		if err != nil {
 			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
 			return
 		}
 
 		// Resize
-		photo, imgCaption, _, err := resizeImage(imgBytes)
+		msg, _ := resizeImage(imgBytes)
+		msg.recipient = message.Sender
 
-		// Send
-		if err != nil {
-			bot.Send(message.Sender, imgCaption)
-		} else {
-			success := sendDocument(bot, message, photo, imgCaption)
-			config.StatConverted += 1
-
-			if success {
-				/*
-					if message.Sender.ID != config.Owner {
-						fmt.Printf("🖼 %d successfully converted an image!%s\n", message.Sender.ID, pngqC)
-					}
-				*/
-			}
-		}
+		// Add to send queue
+		go addToQueue(&sendQueue, &msg)
 
 		// Update stat for count of unique chats in a goroutine
 		if message.Sender.ID != lastUser {
-			go utils.UpdateUniqueStat(&message.Sender.ID, &config)
+			go utils.UpdateUniqueStat(&message.Sender.ID, config)
 			lastUser = message.Sender.ID
 		}
 	})
@@ -552,7 +602,7 @@ func main() {
 		}
 
 		if cb.Data == "stats/refresh" {
-			msg, sopts := utils.BuildStatsMsg(&config, vnum)
+			msg, sopts := utils.BuildStatsMsg(config, vnum)
 			bot.Edit(cb.Message, msg, &sopts)
 
 			resp := tb.CallbackResponse{
@@ -591,7 +641,7 @@ func main() {
 
 	// Dump statistics to disk once every 30 minutes, clean spam struct every 60 minutes
 	scheduler := gocron.NewScheduler(time.UTC)
-	scheduler.Every(30).Minutes().Do(utils.DumpConfig, &config)
+	scheduler.Every(30).Minutes().Do(utils.DumpConfig, config)
 	scheduler.Every(60).Minutes().Do(utils.CleanConversionLogs, &Spam)
 	scheduler.StartAsync()
 
