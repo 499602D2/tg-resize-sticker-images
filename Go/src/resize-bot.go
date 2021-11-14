@@ -28,6 +28,16 @@ import (
 	tb "gopkg.in/tucnak/telebot.v2"
 )
 
+type Session struct {
+	/* A struct to simplify passing around structs such as utils.Config, SendQueue, bot etc. */
+	bot      *tb.Bot         // Bot this session runs
+	config   *utils.Config   // Configuration for session
+	spam     *utils.AntiSpam // Anti-spam struct for session
+	queue    *SendQueue      // Message send queue for session
+	lastUser int             // Keep track of the last user to convert an image
+	Mutex    sync.Mutex      // Avoid concurrent writes
+}
+
 type Message struct {
 	recipient *tb.User       // Recipient of the message
 	bytes     *[]byte        // Photo, as a byte array
@@ -38,7 +48,7 @@ type Message struct {
 type SendQueue struct {
 	/* Enforces a rate-limiter to stay within Telegram's send-rate boundaries */
 	messagesPerSecond float32    // Messages-per-second limit
-	messageQueue      []Message  // Queue of photos to send
+	messageQueue      []Message  // Queue of messages to send
 	Mutex             sync.Mutex // Mutex to avoid concurrent writes
 }
 
@@ -48,37 +58,44 @@ func addToQueue(queue *SendQueue, message *Message) {
 	queue.Mutex.Unlock()
 }
 
-func messageSender(bot *tb.Bot, queue *SendQueue, config *utils.Config) {
+func updateLastUserId(session *Session, id int) {
+	session.Mutex.Lock()
+	session.lastUser = id
+	session.Mutex.Unlock()
+}
+
+func messageSender(session *Session) {
 	/* Function clears the SendQueue and stays within API limits while doing so */
 	for {
 		// If queue is not empty, clear it
-		if len(queue.messageQueue) != 0 {
+		if len(session.queue.messageQueue) != 0 {
 			// Lock sendQueue for parsing
-			queue.Mutex.Lock()
+			session.queue.Mutex.Lock()
 
 			// Iterate over queue
-			for i, msg := range queue.messageQueue {
+			for i, msg := range session.queue.messageQueue {
 				// If nil bytes, we are only sending text
 				if msg.bytes == nil {
-					_, err := bot.Send(msg.recipient, msg.caption, &msg.sopts)
+					_, err := session.bot.Send(msg.recipient, msg.caption, &msg.sopts)
 					if err != nil {
 						log.Println("Error sending non-bytes message in messageSender:", err)
 					}
 				} else {
-					sendDocument(bot, msg, config)
+					// If non-nil bytes, we are sending a photo
+					sendDocument(session, msg)
 				}
 
 				// Sleep long enough to stay within API limits: convert messagesPerSecond to ms
-				if i < len(queue.messageQueue)-1 {
-					time.Sleep(time.Millisecond * time.Duration(1.0/queue.messagesPerSecond*1000.0))
+				if i < len(session.queue.messageQueue)-1 {
+					time.Sleep(time.Millisecond * time.Duration(1.0/session.queue.messagesPerSecond*1000.0))
 				}
 			}
 
 			// Clear queue
-			queue.messageQueue = nil
+			session.queue.messageQueue = nil
 
 			// Batch send done, unlock sendQueue
-			queue.Mutex.Unlock()
+			session.queue.Mutex.Unlock()
 		}
 
 		// Sleep while waiting for updates
@@ -102,9 +119,9 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	if err != nil {
 		go log.Println("⚠️ Error decoding image! Err: ", err)
 
-		errorMsg := fmt.Sprintf("⚠️ Error decoding image: %s.", err.Error())
+		errorMsg := fmt.Sprintf("⚠️ Error decoding image (%s).", err.Error())
 		if err.Error() == "unsupported image format" {
-			errorMsg += " Please send jpg/png images."
+			errorMsg += " Please send JPG/PNG/WebP images."
 		}
 
 		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
@@ -131,7 +148,7 @@ func resizeImage(imgBytes []byte) (Message, error) {
 
 	if err != nil {
 		go log.Println("⚠️ Error resizing image:", err)
-		errorMsg := fmt.Sprintf("⚠️ Error resizing image: %s", err.Error())
+		errorMsg := fmt.Sprintf("⚠️ Error resizing image (%s)", err.Error())
 		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
 	}
 
@@ -151,7 +168,7 @@ func resizeImage(imgBytes []byte) (Message, error) {
 		if err.Error() == "unsupported image format" {
 			errorMsg = "⚠️ Unsupported image format!"
 		} else {
-			errorMsg = fmt.Sprintf("⚠️ Error encoding image: %s", err.Error())
+			errorMsg = fmt.Sprintf("⚠️ Error encoding image (%s)", err.Error())
 		}
 
 		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
@@ -210,17 +227,19 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	return message, nil
 }
 
-func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.Config) ([]byte, error) {
+func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, error) {
 	// If using local API, no need to get file: open from disk and return bytes
-	if config.API.LocalAPIEnabled {
+	if session.config.API.LocalAPIEnabled {
 		var err error
 		var file tb.File
 
 		// Get file, store
 		if mediaType == "photo" {
-			file, err = bot.FileByID(message.Photo.File.FileID)
-		} else {
-			file, err = bot.FileByID(message.Document.File.FileID)
+			file, err = session.bot.FileByID(message.Photo.File.FileID)
+		} else if mediaType == "document" {
+			file, err = session.bot.FileByID(message.Document.File.FileID)
+		} else if mediaType == "sticker" {
+			file, err = session.bot.FileByID(message.Sticker.File.FileID)
 		}
 
 		if err != nil {
@@ -230,7 +249,7 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 		}
 
 		// Construct path from config's working directory
-		fPath := filepath.Join(config.API.LocalWorkingDir, config.Token, file.FilePath)
+		fPath := filepath.Join(session.config.API.LocalWorkingDir, session.config.Token, file.FilePath)
 		if err != nil {
 			go log.Println("Error creating absolute path:", err)
 			return []byte{}, err
@@ -259,9 +278,11 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 		var file io.ReadCloser
 
 		if mediaType == "photo" {
-			file, err = bot.GetFile(&message.Photo.File)
-		} else {
-			file, err = bot.GetFile(&message.Document.File)
+			file, err = session.bot.GetFile(&message.Photo.File)
+		} else if mediaType == "document" {
+			file, err = session.bot.GetFile(&message.Document.File)
+		} else if mediaType == "sticker" {
+			file, err = session.bot.GetFile(&message.Sticker.File)
 		}
 
 		if err != nil {
@@ -285,7 +306,55 @@ func getBytes(bot *tb.Bot, message *tb.Message, mediaType string, config *utils.
 	}
 }
 
-func sendDocument(bot *tb.Bot, msg Message, config *utils.Config) {
+func handleIncomingMedia(session *Session, message *tb.Message, mediaType string) {
+	/* Handles incoming media, i.e. those caught by tb.OnPhoto, tb.OnDocument etc. */
+	// Anti-spam: return if user is not allowed to convert
+	if !utils.ConversionPreHandler(session.spam, message.Sender.ID) {
+		go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
+
+		// Construct message
+		msg := Message{
+			recipient: message.Sender,
+			bytes:     nil,
+			caption:   utils.RatelimitedMessage(session.spam, message.Sender.ID),
+			sopts:     tb.SendOptions{ParseMode: "Markdown"},
+		}
+
+		// Add to send queue
+		go addToQueue(session.queue, &msg)
+		return
+	}
+
+	// Download
+	imgBytes, err := getBytes(session, message, mediaType)
+	if err != nil {
+		// Construct message
+		msg := Message{
+			recipient: message.Sender,
+			bytes:     nil,
+			caption:   fmt.Sprintf("⚠️ Error downloading image of type %s! Please try again.", mediaType),
+		}
+
+		// Add to send queue
+		go addToQueue(session.queue, &msg)
+		return
+	}
+
+	// Resize
+	msg, _ := resizeImage(imgBytes)
+	msg.recipient = message.Sender
+
+	// Add to send queue
+	go addToQueue(session.queue, &msg)
+
+	// Update stat for count of unique chats in a goroutine
+	if message.Sender.ID != session.lastUser {
+		go utils.UpdateUniqueStat(&message.Sender.ID, session.config)
+		updateLastUserId(session, message.Sender.ID)
+	}
+}
+
+func sendDocument(session *Session, msg Message) {
 	// Send as a document: create object
 	doc := tb.Document{
 		File:     tb.FromReader(bytes.NewReader(*msg.bytes)),
@@ -298,13 +367,13 @@ func sendDocument(bot *tb.Bot, msg Message, config *utils.Config) {
 	sendOpts := tb.SendOptions{DisableNotification: true}
 
 	// Send
-	_, err := doc.Send(bot, msg.recipient, &sendOpts)
+	_, err := doc.Send(session.bot, msg.recipient, &sendOpts)
 
 	if err != nil {
 		go log.Println("⚠️ Error sending message (notifying user):", err)
 		errorMessage := "🚦 Error sending finished image! Please try again."
 
-		_, err := bot.Send(msg.recipient, errorMessage)
+		_, err := session.bot.Send(msg.recipient, errorMessage)
 		if err != nil {
 			go log.Println("\tUnable to notify user:", err)
 		}
@@ -312,7 +381,7 @@ func sendDocument(bot *tb.Bot, msg Message, config *utils.Config) {
 		return
 	}
 
-	go utils.StatsPlusOneConversion(config)
+	go utils.StatsPlusOneConversion(session.config)
 }
 
 func setupSignalHandler(config *utils.Config) {
@@ -348,8 +417,9 @@ func main() {
 	1.5.7: 2021.09.30: callbacks for /spam, logging
 	1.5.8: 2021.11.11: improvements to /spam command, bump telebot + core
 	1.6.0: 2021.11.13: implement a message send queue, locks for config
-	1.6.1: 2021.11.13: send error messages with queue */
-	const vnum string = "1.6.1 (2021.11.13)"
+	1.6.1: 2021.11.13: send error messages with queue
+	1.6.2: 2021.11.14: add session struct, simplify media handling, add webp support */
+	const vnum string = "1.6.2 (2021.11.14)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -440,17 +510,23 @@ func main() {
 		return
 	}
 
-	// Setup messageSender, run messageSender in a goroutine
-	sendQueue := SendQueue{messagesPerSecond: 30.0}
-	go messageSender(bot, &sendQueue, config)
-
 	// https://pkg.go.dev/github.com/davidbyttow/govips/v2@v2.6.0/vips#LoggingSettings
 	vips.LoggingSettings(nil, vips.LogLevel(3))
 	vips.Startup(nil)
 
-	// Keep track of the last chat to convert an image;
-	// this should reduce UpdateUniqueStat checks a lot
-	var lastUser int
+	// Setup messageSender
+	sendQueue := SendQueue{messagesPerSecond: 30.0}
+
+	// Define session: used to throw around structs that are needed frequently
+	session := Session{
+		bot:    bot,
+		config: config,
+		spam:   &Spam,
+		queue:  &sendQueue,
+	}
+
+	// Run messageSender in a goroutine
+	go messageSender(&session)
 
 	// Command handler for /start
 	bot.Handle("/start", func(message *tb.Message) {
@@ -485,7 +561,8 @@ func main() {
 		// Refresh ConversionCount for chat
 		utils.RefreshConversions(&Spam, message.Sender.ID)
 
-		helpMessage := "🖼 To use the bot, simply send your image to this chat! (JPG/PNG)"
+		helpMessage := "🖼 To use the bot, simply send your image to this chat as JPG/PNG/WebP."
+		helpMessage += " The bot can also copy stickers — try sending one!"
 		helpMessage += fmt.Sprintf(
 			"\n\n*Note:* you can convert up to %d images per hour.", Spam.Rules["ConversionsPerHour"])
 		helpMessage += fmt.Sprintf(
@@ -557,92 +634,17 @@ func main() {
 
 	// Register photo handler
 	bot.Handle(tb.OnPhoto, func(message *tb.Message) {
-		// Anti-spam: return if user is not allowed to convert
-		if !utils.ConversionPreHandler(&Spam, message.Sender.ID) {
-			go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
-
-			// Construct message
-			msg := Message{
-				recipient: message.Sender,
-				bytes:     nil,
-				caption:   utils.RatelimitedMessage(&Spam, message.Sender.ID),
-				sopts:     tb.SendOptions{ParseMode: "Markdown"},
-			}
-
-			// Add to send queue
-			go addToQueue(&sendQueue, &msg)
-			return
-		}
-
-		// Download
-		imgBytes, err := getBytes(bot, message, "photo", config)
-		if err != nil {
-			// Construct message
-			msg := Message{
-				recipient: message.Sender,
-				bytes:     nil,
-				caption:   "⚠️ Error downloading image! Please try again.",
-			}
-
-			// Add to send queue
-			go addToQueue(&sendQueue, &msg)
-			return
-		}
-
-		// Resize
-		msg, _ := resizeImage(imgBytes)
-		msg.recipient = message.Sender
-
-		// Add to send queue
-		go addToQueue(&sendQueue, &msg)
-
-		// Update stat for count of unique chats in a goroutine
-		if message.Sender.ID != lastUser {
-			go utils.UpdateUniqueStat(&message.Sender.ID, config)
-			lastUser = message.Sender.ID
-		}
+		handleIncomingMedia(&session, message, "photo")
 	})
 
 	// Register document handler
 	bot.Handle(tb.OnDocument, func(message *tb.Message) {
-		// Anti-spam: return if user is not allowed to convert
-		if !utils.ConversionPreHandler(&Spam, message.Sender.ID) {
-			go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
+		handleIncomingMedia(&session, message, "document")
+	})
 
-			// Construct message
-			msg := Message{
-				recipient: message.Sender,
-				bytes:     nil,
-				caption:   utils.RatelimitedMessage(&Spam, message.Sender.ID),
-				sopts:     tb.SendOptions{ParseMode: "Markdown"},
-			}
-
-			// Add to send queue
-			go addToQueue(&sendQueue, &msg)
-			return
-		}
-
-		// Download
-		imgBytes, err := getBytes(bot, message, "document", config)
-		if err != nil {
-			caption := "⚠️ Error downloading image! Please try again."
-			msg := Message{recipient: message.Sender, caption: caption}
-			go addToQueue(&sendQueue, &msg)
-			return
-		}
-
-		// Resize
-		msg, _ := resizeImage(imgBytes)
-		msg.recipient = message.Sender
-
-		// Add to send queue
-		go addToQueue(&sendQueue, &msg)
-
-		// Update stat for count of unique chats in a goroutine
-		if message.Sender.ID != lastUser {
-			go utils.UpdateUniqueStat(&message.Sender.ID, config)
-			lastUser = message.Sender.ID
-		}
+	// Register sticker handler
+	bot.Handle(tb.OnSticker, func(message *tb.Message) {
+		handleIncomingMedia(&session, message, "sticker")
 	})
 
 	// Register handler for incoming callback queries (i.e. stats refresh)

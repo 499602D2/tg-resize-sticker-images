@@ -75,7 +75,6 @@ func SpamInspectionString(spam *AntiSpam) (string, tb.SendOptions) {
 
 	// Add Markdown parsing for a pretty link embed + keyboard
 	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
-
 	return inspectionString, sopts
 }
 
@@ -109,7 +108,7 @@ func RefreshConversions(spam *AntiSpam, chat int) {
 	ccLog := spam.ChatConversionLog[chat]
 
 	// Count every timestamp in the last 3600 seconds
-	trailingHour := int(time.Now().Unix() - 3600) // TODO change to 3600
+	trailingHour := int(time.Now().Unix() - 3600)
 
 	// Search for last index outside of the trailing 3600 seconds
 	lastOOR := sort.Search(
@@ -217,7 +216,6 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 
 func CommandPreHandler(spam *AntiSpam, chat int, sentAt int64) bool {
 	/* When user sends a command, verify the chat is eligible for a command parse. */
-
 	chatLog := spam.ChatConversionLog[chat]
 	spam.Mutex.Lock()
 
