@@ -29,9 +29,10 @@ import (
 )
 
 type Message struct {
-	recipient *tb.User // Recipient of the message
-	bytes     *[]byte  // Photo, as a byte array
-	caption   string   // Caption for the photo
+	recipient *tb.User       // Recipient of the message
+	bytes     *[]byte        // Photo, as a byte array
+	caption   string         // Caption for the photo
+	sopts     tb.SendOptions // Send options
 }
 
 type SendQueue struct {
@@ -59,7 +60,10 @@ func messageSender(bot *tb.Bot, queue *SendQueue, config *utils.Config) {
 			for i, msg := range queue.messageQueue {
 				// If nil bytes, we are only sending text
 				if msg.bytes == nil {
-					bot.Send(msg.recipient, msg.caption)
+					_, err := bot.Send(msg.recipient, msg.caption, &msg.sopts)
+					if err != nil {
+						log.Println("Error sending non-bytes message in messageSender:", err)
+					}
 				} else {
 					sendDocument(bot, msg, config)
 				}
@@ -343,8 +347,9 @@ func main() {
 	1.5.6: 2021.09.27: logging improvements, add anti-spam insights
 	1.5.7: 2021.09.30: callbacks for /spam, logging
 	1.5.8: 2021.11.11: improvements to /spam command, bump telebot + core
-	1.6.0: 2021.11.13: implement a message send queue, locks for config */
-	const vnum string = "1.6.0 (2021.11.13)"
+	1.6.0: 2021.11.13: implement a message send queue, locks for config
+	1.6.1: 2021.11.13: send error messages with queue */
+	const vnum string = "1.6.1 (2021.11.13)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -454,8 +459,16 @@ func main() {
 			return
 		}
 
+		// Construct message
 		startMessage := "🖼 Hi there! To use the bot, simply send an image to this chat (jpg/png)."
-		bot.Send(message.Sender, startMessage)
+		msg := Message{
+			recipient: message.Sender,
+			bytes:     nil,
+			caption:   startMessage,
+		}
+
+		// Add to send queue
+		go addToQueue(&sendQueue, &msg)
 
 		if message.Sender.ID != config.Owner {
 			fmt.Println("🌟", message.Sender.ID, "bot added to new chat!")
@@ -474,15 +487,21 @@ func main() {
 
 		helpMessage := "🖼 To use the bot, simply send your image to this chat! (JPG/PNG)"
 		helpMessage += fmt.Sprintf(
-			"\n\n*Note:* you can convert up to %d images per hour.",
-			Spam.Rules["ConversionsPerHour"])
-
+			"\n\n*Note:* you can convert up to %d images per hour.", Spam.Rules["ConversionsPerHour"])
 		helpMessage += fmt.Sprintf(
 			" You have done %s during the last hour.",
-			english.Plural(
-				Spam.ChatConversionLog[message.Sender.ID].ConversionCount, "conversion", ""))
+			english.Plural(Spam.ChatConversionLog[message.Sender.ID].ConversionCount, "conversion", ""))
 
-		bot.Send(message.Sender, helpMessage, "Markdown")
+		// Construct message
+		msg := Message{
+			recipient: message.Sender,
+			bytes:     nil,
+			caption:   helpMessage,
+			sopts:     tb.SendOptions{ParseMode: "Markdown"},
+		}
+
+		// Add to send queue
+		go addToQueue(&sendQueue, &msg)
 
 		if message.Sender.ID != config.Owner {
 			fmt.Println("🙋", message.Sender.ID, "requested help!")
@@ -496,8 +515,14 @@ func main() {
 			return
 		}
 
-		msg, sopts := utils.BuildStatsMsg(config, vnum)
-		bot.Send(message.Sender, msg, &sopts)
+		// Get stats message
+		caption, sopts := utils.BuildStatsMsg(config, vnum)
+
+		// Construct message
+		msg := Message{recipient: message.Sender, bytes: nil, caption: caption, sopts: sopts}
+
+		// Add to send queue
+		go addToQueue(&sendQueue, &msg)
 
 		if message.Sender.ID != config.Owner {
 			fmt.Println("📊", message.Sender.ID, "requested to view stats!")
@@ -521,10 +546,13 @@ func main() {
 		utils.CleanConversionLogs(&Spam)
 
 		// Get string, send options
-		msg, sopts := utils.SpamInspectionString(&Spam)
+		caption, sopts := utils.SpamInspectionString(&Spam)
 
-		// Send
-		bot.Send(message.Sender, msg, &sopts)
+		// Construct message
+		msg := Message{recipient: message.Sender, bytes: nil, caption: caption, sopts: sopts}
+
+		// Add to send queue
+		go addToQueue(&sendQueue, &msg)
 	})
 
 	// Register photo handler
@@ -532,14 +560,32 @@ func main() {
 		// Anti-spam: return if user is not allowed to convert
 		if !utils.ConversionPreHandler(&Spam, message.Sender.ID) {
 			go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
-			bot.Send(message.Sender, utils.RatelimitedMessage(&Spam, message.Sender.ID), "Markdown")
+
+			// Construct message
+			msg := Message{
+				recipient: message.Sender,
+				bytes:     nil,
+				caption:   utils.RatelimitedMessage(&Spam, message.Sender.ID),
+				sopts:     tb.SendOptions{ParseMode: "Markdown"},
+			}
+
+			// Add to send queue
+			go addToQueue(&sendQueue, &msg)
 			return
 		}
 
 		// Download
 		imgBytes, err := getBytes(bot, message, "photo", config)
 		if err != nil {
-			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
+			// Construct message
+			msg := Message{
+				recipient: message.Sender,
+				bytes:     nil,
+				caption:   "⚠️ Error downloading image! Please try again.",
+			}
+
+			// Add to send queue
+			go addToQueue(&sendQueue, &msg)
 			return
 		}
 
@@ -562,14 +608,26 @@ func main() {
 		// Anti-spam: return if user is not allowed to convert
 		if !utils.ConversionPreHandler(&Spam, message.Sender.ID) {
 			go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
-			bot.Send(message.Sender, utils.RatelimitedMessage(&Spam, message.Sender.ID), "Markdown")
+
+			// Construct message
+			msg := Message{
+				recipient: message.Sender,
+				bytes:     nil,
+				caption:   utils.RatelimitedMessage(&Spam, message.Sender.ID),
+				sopts:     tb.SendOptions{ParseMode: "Markdown"},
+			}
+
+			// Add to send queue
+			go addToQueue(&sendQueue, &msg)
 			return
 		}
 
 		// Download
 		imgBytes, err := getBytes(bot, message, "document", config)
 		if err != nil {
-			bot.Send(message.Sender, "⚠️ Error downloading image! Please try again.")
+			caption := "⚠️ Error downloading image! Please try again."
+			msg := Message{recipient: message.Sender, caption: caption}
+			go addToQueue(&sendQueue, &msg)
 			return
 		}
 
