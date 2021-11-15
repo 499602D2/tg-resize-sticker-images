@@ -431,8 +431,9 @@ func main() {
 	1.6.0: 2021.11.13: implement a message send queue, locks for config
 	1.6.1: 2021.11.13: send error messages with queue
 	1.6.2: 2021.11.14: add session struct, simplify media handling, add webp support
-	1.6.3: 2021.11.15: log dl/resize failures, improve /start */
-	const vnum string = "1.6.3 (2021.11.15)"
+	1.6.3: 2021.11.15: log dl/resize failures, improve /start
+	1.6.4: 2021.11.15: don't store chat ID on /start */
+	const vnum string = "1.6.4 (2021.11.15)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -561,7 +562,7 @@ func main() {
 		go addToQueue(&sendQueue, &msg)
 
 		// Check if the chat is actually new, or just calling /start again
-		if utils.UpdateUniqueStat(&message.Sender.ID, session.config) {
+		if !utils.ChatExists(&message.Sender.ID, session.config) {
 			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
 		}
 	})

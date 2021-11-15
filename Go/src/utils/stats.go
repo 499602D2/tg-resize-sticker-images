@@ -15,8 +15,22 @@ func StatsPlusOneConversion(config *Config) {
 	config.Mutex.Unlock()
 }
 
-func UpdateUniqueStat(uid *int, config *Config) bool {
-	/* Keeps track of unique chats. Returns true if chat is unique, i.e. new. */
+func ChatExists(uid *int, config *Config) bool {
+	// Checks if the chat ID already exists
+	i := sort.Search(
+		len(config.UniqueUsers),
+		func(i int) bool { return config.UniqueUsers[i] >= *uid },
+	)
+
+	// UID already exists in the array, return true
+	if i < len(config.UniqueUsers) && config.UniqueUsers[i] == *uid {
+		return true
+	}
+
+	return false
+}
+
+func UpdateUniqueStat(uid *int, config *Config) {
 	// Lock
 	config.Mutex.Lock()
 
@@ -29,7 +43,7 @@ func UpdateUniqueStat(uid *int, config *Config) bool {
 	if i < len(config.UniqueUsers) && config.UniqueUsers[i] == *uid {
 		// UID already exists in the array
 		config.Mutex.Unlock()
-		return false
+		return
 	} else {
 		if len(config.UniqueUsers) == i {
 			// Nil or empty slice, or after last element
@@ -49,7 +63,6 @@ func UpdateUniqueStat(uid *int, config *Config) bool {
 
 	// Unlock
 	config.Mutex.Unlock()
-	return true
 }
 
 func BuildStatsMsg(config *Config, vnum string) (string, tb.SendOptions) {
