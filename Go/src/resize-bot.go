@@ -21,7 +21,6 @@ import (
 	"tg-resize-sticker-images/utils"
 
 	"github.com/davidbyttow/govips/v2/vips"
-	"github.com/dustin/go-humanize/english"
 	"github.com/go-co-op/gocron"
 
 	pngquant "github.com/yusukebe/go-pngquant"
@@ -227,7 +226,7 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	return message, nil
 }
 
-func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, error) {
+func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, string, error) {
 	// If using local API, no need to get file: open from disk and return bytes
 	if session.config.API.LocalAPIEnabled {
 		var err error
@@ -245,14 +244,14 @@ func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, 
 		if err != nil {
 			go log.Println("⚠️ Error running GetFile (local): ", err)
 			go log.Printf("File: %+v\n", file)
-			return []byte{}, err
+			return []byte{}, "", err
 		}
 
 		// Construct path from config's working directory
 		fPath := filepath.Join(session.config.API.LocalWorkingDir, session.config.Token, file.FilePath)
 		if err != nil {
 			go log.Println("Error creating absolute path:", err)
-			return []byte{}, err
+			return []byte{}, "", err
 		}
 
 		// Attempt reading file contents
@@ -265,29 +264,33 @@ func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, 
 
 			// Error: remove file, return
 			os.Remove(fPath)
-			return []byte{}, err
+			return []byte{}, "", err
 		}
 
 		// Success: remove file, return
 		os.Remove(fPath)
-		return imgBuf, nil
+		return imgBuf, "", nil
 
 	} else {
 		// Else, we're using the regular Telegram bot API: get file from servers
 		var err error
 		var file io.ReadCloser
+		var fExt string
 
 		if mediaType == "photo" {
 			file, err = session.bot.GetFile(&message.Photo.File)
+			fExt = message.Photo.FilePath
 		} else if mediaType == "document" {
 			file, err = session.bot.GetFile(&message.Document.File)
+			fExt = message.Document.FilePath
 		} else if mediaType == "sticker" {
 			file, err = session.bot.GetFile(&message.Sticker.File)
+			fExt = message.Sticker.FilePath
 		}
 
 		if err != nil {
 			go log.Println("⚠️ Error running GetFile: ", err)
-			return []byte{}, err
+			return []byte{}, fExt, err
 		}
 
 		defer file.Close()
@@ -299,10 +302,10 @@ func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, 
 
 		if err != nil {
 			go log.Println("⚠️ Error copying image to buffer:", err)
-			return []byte{}, err
+			return []byte{}, fExt, err
 		}
 
-		return imgBuf.Bytes(), nil
+		return imgBuf.Bytes(), fExt, nil
 	}
 }
 
@@ -326,28 +329,37 @@ func handleIncomingMedia(session *Session, message *tb.Message, mediaType string
 	}
 
 	// Download
-	imgBytes, err := getBytes(session, message, mediaType)
+	imgBytes, fExt, err := getBytes(session, message, mediaType)
 	if err != nil {
 		// Construct message
 		msg := Message{
 			recipient: message.Sender,
 			bytes:     nil,
-			caption:   fmt.Sprintf("⚠️ Error downloading image of type %s! Please try again.", mediaType),
+			caption:   "⚠️ Error downloading image! Please try again.",
 		}
 
 		// Add to send queue
 		go addToQueue(session.queue, &msg)
+
+		// Log error, including media type
+		log.Printf("Error downloading image with extension '%s'. Error: %s\n", fExt, err.Error())
 		return
 	}
 
 	// Resize
-	msg, _ := resizeImage(imgBytes)
+	msg, err := resizeImage(imgBytes)
 	msg.recipient = message.Sender
 
-	// Add to send queue
+	// Log errors encountered during resize
+	if err != nil {
+		log.Printf("Error resizing image with extension '%s'. Error: %s\n", fExt, err.Error())
+	}
+
+	// Add to send queue: regardless of resize outcome, the message is sent
 	go addToQueue(session.queue, &msg)
 
 	// Update stat for count of unique chats in a goroutine
+	// TODO: can this be removed, now that we check for chat unique status on /start?
 	if message.Sender.ID != session.lastUser {
 		go utils.UpdateUniqueStat(&message.Sender.ID, session.config)
 		updateLastUserId(session, message.Sender.ID)
@@ -418,8 +430,9 @@ func main() {
 	1.5.8: 2021.11.11: improvements to /spam command, bump telebot + core
 	1.6.0: 2021.11.13: implement a message send queue, locks for config
 	1.6.1: 2021.11.13: send error messages with queue
-	1.6.2: 2021.11.14: add session struct, simplify media handling, add webp support */
-	const vnum string = "1.6.2 (2021.11.14)"
+	1.6.2: 2021.11.14: add session struct, simplify media handling, add webp support
+	1.6.3: 2021.11.15: log dl/resize failures, improve /start */
+	const vnum string = "1.6.3 (2021.11.15)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -536,18 +549,20 @@ func main() {
 		}
 
 		// Construct message
-		startMessage := "🖼 Hi there! To use the bot, simply send an image to this chat (jpg/png)."
+		startMessage := utils.HelpMessage(message, &Spam)
 		msg := Message{
 			recipient: message.Sender,
 			bytes:     nil,
 			caption:   startMessage,
+			sopts:     tb.SendOptions{ParseMode: "Markdown"},
 		}
 
 		// Add to send queue
 		go addToQueue(&sendQueue, &msg)
 
-		if message.Sender.ID != config.Owner {
-			fmt.Println("🌟", message.Sender.ID, "bot added to new chat!")
+		// Check if the chat is actually new, or just calling /start again
+		if utils.UpdateUniqueStat(&message.Sender.ID, session.config) {
+			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
 		}
 	})
 
@@ -561,13 +576,8 @@ func main() {
 		// Refresh ConversionCount for chat
 		utils.RefreshConversions(&Spam, message.Sender.ID)
 
-		helpMessage := "🖼 To use the bot, simply send your image to this chat as JPG/PNG/WebP."
-		helpMessage += " The bot can also copy stickers — try sending one!"
-		helpMessage += fmt.Sprintf(
-			"\n\n*Note:* you can convert up to %d images per hour.", Spam.Rules["ConversionsPerHour"])
-		helpMessage += fmt.Sprintf(
-			" You have done %s during the last hour.",
-			english.Plural(Spam.ChatConversionLog[message.Sender.ID].ConversionCount, "conversion", ""))
+		// Help message
+		helpMessage := utils.HelpMessage(message, &Spam)
 
 		// Construct message
 		msg := Message{
@@ -581,7 +591,7 @@ func main() {
 		go addToQueue(&sendQueue, &msg)
 
 		if message.Sender.ID != config.Owner {
-			fmt.Println("🙋", message.Sender.ID, "requested help!")
+			log.Println("🙋", message.Sender.ID, "requested help!")
 		}
 	})
 
@@ -602,7 +612,7 @@ func main() {
 		go addToQueue(&sendQueue, &msg)
 
 		if message.Sender.ID != config.Owner {
-			fmt.Println("📊", message.Sender.ID, "requested to view stats!")
+			log.Println("📊", message.Sender.ID, "requested to view stats!")
 		}
 	})
 
@@ -615,7 +625,7 @@ func main() {
 
 		// Check for owner status
 		if message.Sender.ID != config.Owner {
-			fmt.Println("🤨", message.Sender.ID, "tried to use /spam command")
+			log.Println("🤨", message.Sender.ID, "tried to use /spam command")
 			return
 		}
 
@@ -675,7 +685,7 @@ func main() {
 		} else if cb.Data == "spam/refresh" {
 			// Check for owner status
 			if cb.Sender.ID != config.Owner {
-				fmt.Println("🤨", cb.Sender.ID, "tried to use spam/refresh callback")
+				log.Println("🤨", cb.Sender.ID, "tried to use spam/refresh callback")
 				return
 			}
 
@@ -684,7 +694,6 @@ func main() {
 
 			// Get string, send options
 			msg, sopts := utils.SpamInspectionString(&Spam)
-
 			bot.Edit(cb.Message, msg, &sopts)
 
 			resp := tb.CallbackResponse{

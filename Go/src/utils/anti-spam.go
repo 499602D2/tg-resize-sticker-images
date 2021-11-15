@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
 	tb "gopkg.in/tucnak/telebot.v2"
 )
@@ -159,14 +158,12 @@ func ConversionPreHandler(spam *AntiSpam, chat int) bool {
 	// Check if user is banned
 	if spam.ChatBanned[chat] {
 		if spam.ChatBannedUntilTimestamp[chat] <= int(time.Now().Unix()) {
+			// Chat's ban period has ended, lift ban
 			log.Println("⌛️ Chat", chat, "unbanned!")
 			spam.ChatBanned[chat] = false
 			spam.ChatBannedUntilTimestamp[chat] = -1
 		} else {
-			fmt.Println("🔨 Chat", chat, "is currently banned until",
-				spam.ChatBannedUntilTimestamp[chat],
-			)
-
+			// Chat is still banned
 			spam.Mutex.Unlock()
 			return false
 		}
@@ -236,12 +233,4 @@ func CommandPreHandler(spam *AntiSpam, chat int, sentAt int64) bool {
 	spam.ChatConversionLog[chat] = chatLog
 	spam.Mutex.Unlock()
 	return true
-}
-
-func RatelimitedMessage(spam *AntiSpam, chat int) string {
-	/* Construct the message for rate-limited chats. */
-	return fmt.Sprintf(
-		"🚦 *Slow down!* You're allowed to convert %d images per hour. %s %s.",
-		spam.Rules["ConversionsPerHour"], "You can convert images again in",
-		humanize.Time(time.Unix(int64(spam.ChatBannedUntilTimestamp[chat]), 0)))
 }

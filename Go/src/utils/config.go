@@ -118,7 +118,7 @@ func LoadConfig() *Config {
 
 	// Set rate-limit if it has defaulted to 0
 	if config.ConversionRate == 0 {
-		config.ConversionRate = 100
+		config.ConversionRate = 60
 	}
 
 	// Sort UniqueChats, as they may be unsorted
