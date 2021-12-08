@@ -7,4 +7,3 @@ Go/src/config
 .vscode/launch.json
 Go/src/go.sum
 Go/src/cpu.pprof
-Go/src/go.sum

@@ -17,12 +17,12 @@ import (
 type Config struct {
 	Token           string     // Bot API token
 	API             API        // See API struct
-	Owner           int        // Owner of the bot: skips logging
-	ConversionRate  int        // Rate-limit for conversions per hour
+	Owner           int64      // Owner of the bot: skips logging
+	ConversionRate  int64      // Rate-limit for conversions per hour
 	StatConverted   int        // Keep track of converted images
 	StatUniqueChats int        // Keep track of count of unique chats
 	StatStarted     int64      // Unix timestamp of startup time
-	UniqueUsers     []int      // List of all unique chats
+	UniqueUsers     []int64    // List of all unique chats
 	Mutex           sync.Mutex // Mutex to avoid concurrent writes
 }
 
@@ -88,7 +88,7 @@ func LoadConfig() *Config {
 			StatConverted:   0,
 			StatUniqueChats: 0,
 			StatStarted:     time.Now().Unix(),
-			UniqueUsers:     []int{},
+			UniqueUsers:     []int64{},
 		}
 
 		go DumpConfig(&config)
@@ -122,7 +122,10 @@ func LoadConfig() *Config {
 	}
 
 	// Sort UniqueChats, as they may be unsorted
-	sort.Ints(config.UniqueUsers)
+	// https://stackoverflow.com/a/48568680
+	sort.Slice(config.UniqueUsers, func(i, j int) bool {
+		return config.UniqueUsers[i] < config.UniqueUsers[j]
+	})
 
 	return &config
 }

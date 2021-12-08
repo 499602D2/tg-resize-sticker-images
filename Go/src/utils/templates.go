@@ -6,7 +6,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
-	tb "gopkg.in/tucnak/telebot.v2"
+	tb "gopkg.in/tucnak/telebot.v3"
 )
 
 func HelpMessage(message *tb.Message, spam *AntiSpam) string {
@@ -24,7 +24,7 @@ func HelpMessage(message *tb.Message, spam *AntiSpam) string {
 	return helpMessage
 }
 
-func RatelimitedMessage(spam *AntiSpam, chat int) string {
+func RatelimitedMessage(spam *AntiSpam, chat int64) string {
 	/* Construct the message for rate-limited chats. */
 	return fmt.Sprintf(
 		"🚦 *Slow down!* You're allowed to convert %d images per hour. %s %s.",

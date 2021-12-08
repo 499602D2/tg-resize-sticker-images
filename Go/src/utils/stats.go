@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	tb "gopkg.in/tucnak/telebot.v2"
+	tb "gopkg.in/tucnak/telebot.v3"
 )
 
 func StatsPlusOneConversion(config *Config) {
@@ -15,7 +15,7 @@ func StatsPlusOneConversion(config *Config) {
 	config.Mutex.Unlock()
 }
 
-func ChatExists(uid *int, config *Config) bool {
+func ChatExists(uid *int64, config *Config) bool {
 	// Checks if the chat ID already exists
 	i := sort.Search(
 		len(config.UniqueUsers),
@@ -30,7 +30,7 @@ func ChatExists(uid *int, config *Config) bool {
 	return false
 }
 
-func UpdateUniqueStat(uid *int, config *Config) {
+func UpdateUniqueStat(uid *int64, config *Config) {
 	// Lock
 	config.Mutex.Lock()
 
@@ -50,7 +50,7 @@ func UpdateUniqueStat(uid *int, config *Config) {
 			config.UniqueUsers = append(config.UniqueUsers, *uid)
 		} else if i == 0 {
 			// If zeroth index, append
-			config.UniqueUsers = append([]int{*uid}, config.UniqueUsers...)
+			config.UniqueUsers = append([]int64{*uid}, config.UniqueUsers...)
 		} else {
 			// Otherwise, we're inserting in the middle of the array
 			config.UniqueUsers = append(config.UniqueUsers[:i+1], config.UniqueUsers[i:]...)

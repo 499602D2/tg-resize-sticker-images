@@ -24,7 +24,7 @@ import (
 	"github.com/go-co-op/gocron"
 
 	pngquant "github.com/yusukebe/go-pngquant"
-	tb "gopkg.in/tucnak/telebot.v2"
+	tb "gopkg.in/tucnak/telebot.v3"
 )
 
 type Session struct {
@@ -33,7 +33,7 @@ type Session struct {
 	config   *utils.Config   // Configuration for session
 	spam     *utils.AntiSpam // Anti-spam struct for session
 	queue    *SendQueue      // Message send queue for session
-	lastUser int             // Keep track of the last user to convert an image
+	lastUser int64           // Keep track of the last user to convert an image
 	Mutex    sync.Mutex      // Avoid concurrent writes
 }
 
@@ -57,7 +57,7 @@ func addToQueue(queue *SendQueue, message *Message) {
 	queue.Mutex.Unlock()
 }
 
-func updateLastUserId(session *Session, id int) {
+func updateLastUserId(session *Session, id int64) {
 	session.Mutex.Lock()
 	session.lastUser = id
 	session.Mutex.Unlock()
@@ -274,26 +274,28 @@ func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, 
 	} else {
 		// Else, we're using the regular Telegram bot API: get file from servers
 		var err error
-		var file io.ReadCloser
+		var tbFile *tb.File
+		var file io.Reader
 		var fExt string
 
 		if mediaType == "photo" {
-			file, err = session.bot.GetFile(&message.Photo.File)
+			tbFile = message.Photo.MediaFile()
 			fExt = message.Photo.FilePath
 		} else if mediaType == "document" {
-			file, err = session.bot.GetFile(&message.Document.File)
+			tbFile = message.Document.MediaFile()
 			fExt = message.Document.FilePath
 		} else if mediaType == "sticker" {
-			file, err = session.bot.GetFile(&message.Sticker.File)
+			tbFile = message.Sticker.MediaFile()
 			fExt = message.Sticker.FilePath
 		}
+
+		// Get file
+		file, err = session.bot.File(tbFile)
 
 		if err != nil {
 			go log.Println("⚠️ Error running GetFile: ", err)
 			return []byte{}, fExt, err
 		}
-
-		defer file.Close()
 
 		// Download or copy to buffer, depending on API used
 		// copy file contents to imgBuf
@@ -432,8 +434,9 @@ func main() {
 	1.6.1: 2021.11.13: send error messages with queue
 	1.6.2: 2021.11.14: add session struct, simplify media handling, add webp support
 	1.6.3: 2021.11.15: log dl/resize failures, improve /start
-	1.6.4: 2021.11.15: don't store chat ID on /start */
-	const vnum string = "1.6.4 (2021.11.15)"
+	1.6.4: 2021.11.15: don't store chat ID on /start
+	1.7.0: 2021.12.08: upgrade to telebot v3 and migrate code */
+	const vnum string = "1.7.0 (2021.12.08)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -459,13 +462,13 @@ func main() {
 
 	// Setup anti-spam
 	Spam := utils.AntiSpam{}
-	Spam.ChatBannedUntilTimestamp = make(map[int]int)
-	Spam.ChatConversionLog = make(map[int]utils.ConversionLog)
-	Spam.ChatBanned = make(map[int]bool)
+	Spam.ChatBannedUntilTimestamp = make(map[int64]int64)
+	Spam.ChatConversionLog = make(map[int64]utils.ConversionLog)
+	Spam.ChatBanned = make(map[int64]bool)
 	Spam.Rules = make(map[string]int64)
 
 	// Add rules
-	Spam.Rules["ConversionsPerHour"] = int64(config.ConversionRate)
+	Spam.Rules["ConversionsPerHour"] = config.ConversionRate
 	Spam.Rules["TimeBetweenCommands"] = 2
 
 	// Setup signal handler
@@ -543,14 +546,15 @@ func main() {
 	go messageSender(&session)
 
 	// Command handler for /start
-	bot.Handle("/start", func(message *tb.Message) {
+	bot.Handle("/start", func(c tb.Context) error {
 		// Anti-spam
+		message := *c.Message()
 		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return
+			return nil
 		}
 
 		// Construct message
-		startMessage := utils.HelpMessage(message, &Spam)
+		startMessage := utils.HelpMessage(&message, &Spam)
 		msg := Message{
 			recipient: message.Sender,
 			bytes:     nil,
@@ -565,20 +569,25 @@ func main() {
 		if !utils.ChatExists(&message.Sender.ID, session.config) {
 			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
 		}
+
+		return nil
 	})
 
 	// Command handler for /help
-	bot.Handle("/help", func(message *tb.Message) {
+	bot.Handle("/help", func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
 		// Anti-spam
 		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return
+			return nil
 		}
 
 		// Refresh ConversionCount for chat
 		utils.RefreshConversions(&Spam, message.Sender.ID)
 
 		// Help message
-		helpMessage := utils.HelpMessage(message, &Spam)
+		helpMessage := utils.HelpMessage(&message, &Spam)
 
 		// Construct message
 		msg := Message{
@@ -594,13 +603,18 @@ func main() {
 		if message.Sender.ID != config.Owner {
 			log.Println("🙋", message.Sender.ID, "requested help!")
 		}
+
+		return nil
 	})
 
 	// Command handler for /stats
-	bot.Handle("/stats", func(message *tb.Message) {
+	bot.Handle("/stats", func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
 		// Anti-spam
 		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return
+			return nil
 		}
 
 		// Get stats message
@@ -615,19 +629,24 @@ func main() {
 		if message.Sender.ID != config.Owner {
 			log.Println("📊", message.Sender.ID, "requested to view stats!")
 		}
+
+		return nil
 	})
 
 	// Command handler for anti-spam statistics
-	bot.Handle("/spam", func(message *tb.Message) {
+	bot.Handle("/spam", func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
 		// Anti-spam
 		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return
+			return nil
 		}
 
 		// Check for owner status
 		if message.Sender.ID != config.Owner {
 			log.Println("🤨", message.Sender.ID, "tried to use /spam command")
-			return
+			return nil
 		}
 
 		// Refresh spam struct
@@ -641,25 +660,41 @@ func main() {
 
 		// Add to send queue
 		go addToQueue(&sendQueue, &msg)
+
+		return nil
 	})
 
 	// Register photo handler
-	bot.Handle(tb.OnPhoto, func(message *tb.Message) {
-		handleIncomingMedia(&session, message, "photo")
+	bot.Handle(tb.OnPhoto, func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		handleIncomingMedia(&session, &message, "photo")
+		return nil
 	})
 
 	// Register document handler
-	bot.Handle(tb.OnDocument, func(message *tb.Message) {
-		handleIncomingMedia(&session, message, "document")
+	bot.Handle(tb.OnDocument, func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		handleIncomingMedia(&session, &message, "document")
+		return nil
 	})
 
 	// Register sticker handler
-	bot.Handle(tb.OnSticker, func(message *tb.Message) {
-		handleIncomingMedia(&session, message, "sticker")
+	bot.Handle(tb.OnSticker, func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		handleIncomingMedia(&session, &message, "sticker")
+		return nil
 	})
 
 	// Register handler for incoming callback queries (i.e. stats refresh)
-	bot.Handle(tb.OnCallback, func(cb *tb.Callback) {
+	bot.Handle(tb.OnCallback, func(c tb.Context) error {
+		cb := *c.Callback()
+
 		// Anti-spam
 		if !utils.CommandPreHandler(&Spam, cb.Sender.ID, time.Now().Unix()) {
 			resp := tb.CallbackResponse{
@@ -668,8 +703,8 @@ func main() {
 				ShowAlert:  true,
 			}
 
-			bot.Respond(cb, &resp)
-			return
+			bot.Respond(&cb, &resp)
+			return nil
 		}
 
 		if cb.Data == "stats/refresh" {
@@ -682,12 +717,12 @@ func main() {
 				ShowAlert:  false,
 			}
 
-			bot.Respond(cb, &resp)
+			bot.Respond(&cb, &resp)
 		} else if cb.Data == "spam/refresh" {
 			// Check for owner status
 			if cb.Sender.ID != config.Owner {
 				log.Println("🤨", cb.Sender.ID, "tried to use spam/refresh callback")
-				return
+				return nil
 			}
 
 			// Refresh spam struct
@@ -703,10 +738,12 @@ func main() {
 				ShowAlert:  false,
 			}
 
-			bot.Respond(cb, &resp)
+			bot.Respond(&cb, &resp)
 		} else {
 			go log.Println("⚠️ Invalid callback data received:", cb.Data)
 		}
+
+		return nil
 	})
 
 	// Dump statistics to disk once every 30 minutes, clean spam struct every 60 minutes
