@@ -18,6 +18,9 @@ import (
 	"syscall"
 	"time"
 
+	"tg-resize-sticker-images/config"
+	"tg-resize-sticker-images/spam"
+	"tg-resize-sticker-images/stats"
 	"tg-resize-sticker-images/utils"
 
 	"github.com/davidbyttow/govips/v2/vips"
@@ -29,12 +32,13 @@ import (
 
 type Session struct {
 	/* A struct to simplify passing around structs such as utils.Config, SendQueue, bot etc. */
-	bot      *tb.Bot         // Bot this session runs
-	config   *utils.Config   // Configuration for session
-	spam     *utils.AntiSpam // Anti-spam struct for session
-	queue    *SendQueue      // Message send queue for session
-	lastUser int64           // Keep track of the last user to convert an image
-	Mutex    sync.Mutex      // Avoid concurrent writes
+	bot      *tb.Bot        // Bot this session runs
+	config   *config.Config // Configuration for session
+	spam     *spam.AntiSpam // Anti-spam struct for session
+	queue    *SendQueue     // Message send queue for session
+	lastUser int64          // Keep track of the last user to convert an image
+	Mutex    sync.Mutex     // Avoid concurrent writes
+	vnum     string         // Version
 }
 
 type Message struct {
@@ -116,7 +120,7 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	// Build image from buffer
 	img, err := vips.NewImageFromBuffer(imgBytes)
 	if err != nil {
-		go log.Println("⚠️ Error decoding image! Err: ", err)
+		log.Println("⚠️ Error decoding image! Err: ", err)
 
 		errorMsg := fmt.Sprintf("⚠️ Error decoding image (%s).", err.Error())
 		if err.Error() == "unsupported image format" {
@@ -146,7 +150,7 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	imgUpscaled := resScale > 1.0
 
 	if err != nil {
-		go log.Println("⚠️ Error resizing image:", err)
+		log.Println("⚠️ Error resizing image:", err)
 		errorMsg := fmt.Sprintf("⚠️ Error resizing image (%s)", err.Error())
 		return Message{recipient: nil, bytes: nil, caption: errorMsg}, err
 	}
@@ -161,7 +165,7 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	// Encode as png into a new buffer
 	pngBuff, _, err := img.ExportPng(&pngParams)
 	if err != nil {
-		go log.Println("⚠️ Error encoding image as png: ", err)
+		log.Println("⚠️ Error encoding image as png: ", err)
 
 		var errorMsg string
 		if err.Error() == "unsupported image format" {
@@ -186,26 +190,26 @@ func resizeImage(imgBytes []byte) (Message, error) {
 
 		imgImg, err := img.ToImage(&expParams)
 		if err != nil {
-			go log.Println("⚠️ Error exporting image as image.Image:", err)
+			log.Println("⚠️ Error exporting image as image.Image:", err)
 		}
 
 		cImg, err := pngquant.Compress(imgImg, "6")
 		if err != nil {
-			go log.Println("⚠️ Error compressing image with pngquant:", err)
+			log.Println("⚠️ Error compressing image with pngquant:", err)
 		}
 
 		// Write to buffer
 		cBuff := new(bytes.Buffer)
 		err = png.Encode(cBuff, cImg)
 		if err != nil {
-			go log.Println("⚠️ Error encoding cImg as png:", err)
+			log.Println("⚠️ Error encoding cImg as png:", err)
 		}
 
 		pngBuff = cBuff.Bytes()
 		compressionFailed = len(pngBuff)/1024 >= 512
 
 		if compressionFailed {
-			go log.Println("\t⚠️ Image compression failed! Buffer length (KB):", len(cBuff.Bytes())/1024)
+			log.Println("\t⚠️ Image compression failed! Buffer length (KB):", len(cBuff.Bytes())/1024)
 		}
 	}
 
@@ -226,75 +230,73 @@ func resizeImage(imgBytes []byte) (Message, error) {
 	return message, nil
 }
 
-func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, string, error) {
+func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, error) {
 	// If using local API, no need to get file: open from disk and return bytes
 	if session.config.API.LocalAPIEnabled {
 		var err error
 		var file tb.File
 
 		// Get file, store
-		if mediaType == "photo" {
+		switch mediaType {
+		case "photo":
 			file, err = session.bot.FileByID(message.Photo.File.FileID)
-		} else if mediaType == "document" {
+		case "document":
 			file, err = session.bot.FileByID(message.Document.File.FileID)
-		} else if mediaType == "sticker" {
+		case "sticker":
 			file, err = session.bot.FileByID(message.Sticker.File.FileID)
 		}
 
 		if err != nil {
-			go log.Println("⚠️ Error running GetFile (local): ", err)
-			go log.Printf("File: %+v\n", file)
-			return []byte{}, "", err
+			log.Println("⚠️ Error running GetFile (local): ", err)
+			log.Printf("File: %+v\n", file)
+			return []byte{}, err
 		}
 
 		// Construct path from config's working directory
 		fPath := filepath.Join(session.config.API.LocalWorkingDir, session.config.Token, file.FilePath)
 		if err != nil {
-			go log.Println("Error creating absolute path:", err)
-			return []byte{}, "", err
+			log.Println("Error creating absolute path:", err)
+			return []byte{}, err
 		}
 
 		// Attempt reading file contents
 		imgBuf, err := ioutil.ReadFile(fPath)
 
 		if err != nil {
-			go log.Println("⚠️ Error opening local file from FilePath!", message.Photo.FilePath)
-			go log.Println("Constructed fPath:", fPath)
-			go log.Println("Err:", err)
+			log.Println("⚠️ Error opening local file from FilePath!", message.Photo.FilePath)
+			log.Println("Constructed fPath:", fPath)
+			log.Println("Err:", err)
 
 			// Error: remove file, return
 			os.Remove(fPath)
-			return []byte{}, "", err
+			return []byte{}, err
 		}
 
 		// Success: remove file, return
 		os.Remove(fPath)
-		return imgBuf, "", nil
+		return imgBuf, nil
 
 	} else {
 		// Else, we're using the regular Telegram bot API: get file from servers
 		var err error
 		var tbFile *tb.File
 		var file io.Reader
-		var fExt string
 
-		if mediaType == "photo" {
+		switch mediaType {
+		case "photo":
 			tbFile = message.Photo.MediaFile()
-			fExt = message.Photo.FilePath
-		} else if mediaType == "document" {
+		case "document":
 			tbFile = message.Document.MediaFile()
-			fExt = message.Document.FilePath
-		} else if mediaType == "sticker" {
+		case "sticker":
 			tbFile = message.Sticker.MediaFile()
-			fExt = message.Sticker.FilePath
 		}
 
 		// Get file
 		file, err = session.bot.File(tbFile)
 
 		if err != nil {
-			go log.Println("⚠️ Error running GetFile: ", err)
-			return []byte{}, fExt, err
+			log.Println("⚠️ Error running GetFile: ", err)
+			return []byte{}, err
 		}
 
 		// Download or copy to buffer, depending on API used
@@ -303,19 +305,19 @@ func getBytes(session *Session, message *tb.Message, mediaType string) ([]byte, 
 		_, err = io.Copy(&imgBuf, file)
 
 		if err != nil {
-			go log.Println("⚠️ Error copying image to buffer:", err)
-			return []byte{}, fExt, err
+			log.Println("⚠️ Error copying image to buffer:", err)
+			return []byte{}, err
 		}
 
-		return imgBuf.Bytes(), fExt, nil
+		return imgBuf.Bytes(), nil
 	}
 }
 
 func handleIncomingMedia(session *Session, message *tb.Message, mediaType string) {
 	/* Handles incoming media, i.e. those caught by tb.OnPhoto, tb.OnDocument etc. */
 	// Anti-spam: return if user is not allowed to convert
-	if !utils.ConversionPreHandler(session.spam, message.Sender.ID) {
-		go log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
+	if !spam.ConversionPreHandler(session.spam, message.Sender.ID) {
+		log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
 
 		// Construct message
 		msg := Message{
@@ -331,7 +333,7 @@ func handleIncomingMedia(session *Session, message *tb.Message, mediaType string
 	}
 
 	// Download
-	imgBytes, fExt, err := getBytes(session, message, mediaType)
+	imgBytes, err := getBytes(session, message, mediaType)
 	if err != nil {
 		// Construct message
 		msg := Message{
@@ -344,7 +346,7 @@ func handleIncomingMedia(session *Session, message *tb.Message, mediaType string
 		go addToQueue(session.queue, &msg)
 
 		// Log error, including media type
-		log.Printf("Error downloading image with extension '%s'. Error: %s\n", fExt, err.Error())
+		log.Printf("Error downloading image: %s\n", err.Error())
 		return
 	}
 
@@ -354,16 +356,15 @@ func handleIncomingMedia(session *Session, message *tb.Message, mediaType string
 
 	// Log errors encountered during resize
 	if err != nil {
-		log.Printf("Error resizing image with extension '%s'. Error: %s\n", fExt, err.Error())
+		log.Printf("Error resizing image: %s\n", err.Error())
 	}
 
 	// Add to send queue: regardless of resize outcome, the message is sent
 	go addToQueue(session.queue, &msg)
 
 	// Update stat for count of unique chats in a goroutine
-	// TODO: can this be removed, now that we check for chat unique status on /start?
 	if message.Sender.ID != session.lastUser {
-		go utils.UpdateUniqueStat(&message.Sender.ID, session.config)
+		go stats.UpdateUniqueStat(&message.Sender.ID, session.config)
 		updateLastUserId(session, message.Sender.ID)
 	}
 }
@@ -384,29 +385,182 @@ func sendDocument(session *Session, msg Message) {
 	_, err := doc.Send(session.bot, msg.recipient, &sendOpts)
 
 	if err != nil {
-		go log.Println("⚠️ Error sending message (notifying user):", err)
+		log.Println("⚠️ Error sending message (notifying user):", err)
 		errorMessage := "🚦 Error sending finished image! Please try again."
 
 		_, err := session.bot.Send(msg.recipient, errorMessage)
 		if err != nil {
-			go log.Println("\tUnable to notify user:", err)
+			log.Println("\tUnable to notify user:", err)
 		}
 
 		return
 	}
 
-	go utils.StatsPlusOneConversion(session.config)
+	go stats.StatsPlusOneConversion(session.config)
 }
 
-func setupSignalHandler(config *utils.Config) {
+func setupBot(session *Session, aspam *spam.AntiSpam) {
+	// Command handler for /start
+	bot := session.bot
+
+	bot.Handle("/start", func(c tb.Context) error {
+		// Anti-spam
+		message := *c.Message()
+		if !spam.CommandPreHandler(aspam, message.Sender.ID, message.Unixtime) {
+			return nil
+		}
+
+		// Construct message
+		startMessage := utils.HelpMessage(&message, aspam)
+		msg := Message{
+			recipient: message.Sender,
+			bytes:     nil,
+			caption:   startMessage,
+			sopts:     tb.SendOptions{ParseMode: "Markdown"},
+		}
+
+		// Add to send queue
+		go addToQueue(session.queue, &msg)
+
+		// Check if the chat is actually new, or just calling /start again
+		if !stats.ChatExists(&message.Sender.ID, session.config) {
+			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
+		}
+
+		return nil
+	})
+
+	// Command handler for /help
+	bot.Handle("/help", func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		// Anti-spam
+		if !spam.CommandPreHandler(aspam, message.Sender.ID, message.Unixtime) {
+			return nil
+		}
+
+		// Refresh ConversionCount for chat
+		spam.RefreshConversions(aspam, message.Sender.ID)
+
+		// Help message
+		helpMessage := utils.HelpMessage(&message, aspam)
+
+		// Construct message
+		msg := Message{
+			recipient: message.Sender,
+			bytes:     nil,
+			caption:   helpMessage,
+			sopts:     tb.SendOptions{ParseMode: "Markdown"},
+		}
+
+		// Add to send queue
+		go addToQueue(session.queue, &msg)
+
+		if message.Sender.ID != session.config.Owner {
+			log.Println("🙋", message.Sender.ID, "requested help!")
+		}
+
+		return nil
+	})
+
+	// Command handler for /stats
+	bot.Handle("/stats", func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		// Anti-spam
+		if !spam.CommandPreHandler(aspam, message.Sender.ID, message.Unixtime) {
+			return nil
+		}
+
+		// Get stats message
+		caption, sopts := stats.BuildStatsMsg(session.config, aspam, session.vnum)
+
+		// Construct message
+		msg := Message{recipient: message.Sender, bytes: nil, caption: caption, sopts: sopts}
+
+		// Add to send queue
+		go addToQueue(session.queue, &msg)
+
+		if message.Sender.ID != session.config.Owner {
+			log.Println("📊", message.Sender.ID, "requested to view stats!")
+		}
+
+		return nil
+	})
+
+	// Register photo handler
+	bot.Handle(tb.OnPhoto, func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		handleIncomingMedia(session, &message, "photo")
+		return nil
+	})
+
+	// Register document handler
+	bot.Handle(tb.OnDocument, func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		handleIncomingMedia(session, &message, "document")
+		return nil
+	})
+
+	// Register sticker handler
+	bot.Handle(tb.OnSticker, func(c tb.Context) error {
+		// Pointer to message
+		message := *c.Message()
+
+		handleIncomingMedia(session, &message, "sticker")
+		return nil
+	})
+
+	// Register handler for incoming callback queries (i.e. stats refresh)
+	bot.Handle(tb.OnCallback, func(c tb.Context) error {
+		cb := *c.Callback()
+
+		// Anti-spam
+		if !spam.CommandPreHandler(aspam, cb.Sender.ID, time.Now().Unix()) {
+			resp := tb.CallbackResponse{
+				CallbackID: cb.ID,
+				Text:       "⚠️ Please do not spam the bot for no reason.",
+				ShowAlert:  true,
+			}
+
+			bot.Respond(&cb, &resp)
+			return nil
+		}
+
+		if cb.Data == "stats/refresh" {
+			msg, sopts := stats.BuildStatsMsg(session.config, aspam, session.vnum)
+			bot.Edit(cb.Message, msg, &sopts)
+
+			resp := tb.CallbackResponse{
+				CallbackID: cb.ID,
+				Text:       "🔄 Statistics refreshed!",
+				ShowAlert:  false,
+			}
+
+			bot.Respond(&cb, &resp)
+		} else {
+			log.Println("⚠️ Invalid callback data received:", cb.Data)
+		}
+
+		return nil
+	})
+}
+
+func setupSignalHandler(conf *config.Config) {
 	// Listens for incoming interrupt signals, dumps config if detected
 	channel := make(chan os.Signal)
-	signal.Notify(channel, os.Interrupt, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
+	signal.Notify(channel, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	go func() {
 		<-channel
-		go log.Println("🚦 Received interrupt signal: dumping config...")
-		utils.DumpConfig(config)
+		log.Println("🚦 Received interrupt signal: dumping config...")
+		config.DumpConfig(conf)
 		os.Exit(0)
 	}()
 }
@@ -435,8 +589,9 @@ func main() {
 	1.6.2: 2021.11.14: add session struct, simplify media handling, add webp support
 	1.6.3: 2021.11.15: log dl/resize failures, improve /start
 	1.6.4: 2021.11.15: don't store chat ID on /start
-	1.7.0: 2021.12.08: upgrade to telebot v3 and migrate code */
-	const vnum string = "1.7.0 (2021.12.08)"
+	1.7.0: 2021.12.08: upgrade to telebot v3 and migrate code
+	1.7.1: 2021.12.21: code refactor, bump deps */
+	const vnum string = "1.7.1 (2021.12.21)"
 
 	// Log file
 	wd, _ := os.Getwd()
@@ -449,44 +604,44 @@ func main() {
 	logFilePath := filepath.Join(logPath, "bot-log.log")
 	logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
-		go log.Println(err)
+		log.Println(err)
 	}
 
 	// Set output of logs to f
 	defer logf.Close()
 	log.SetOutput(logf)
-	go log.Printf("🤖 [%s] Bot started at %s", vnum, time.Now())
+	log.Printf("🤖 [%s] Bot started at %s", vnum, time.Now())
 
 	// Load (or create) config
-	config := utils.LoadConfig()
+	conf := config.LoadConfig()
 
 	// Setup anti-spam
-	Spam := utils.AntiSpam{}
+	Spam := spam.AntiSpam{}
 	Spam.ChatBannedUntilTimestamp = make(map[int64]int64)
-	Spam.ChatConversionLog = make(map[int64]utils.ConversionLog)
+	Spam.ChatConversionLog = make(map[int64]spam.ConversionLog)
 	Spam.ChatBanned = make(map[int64]bool)
 	Spam.Rules = make(map[string]int64)
 
 	// Add rules
-	Spam.Rules["ConversionsPerHour"] = config.ConversionRate
+	Spam.Rules["ConversionsPerHour"] = conf.ConversionRate
 	Spam.Rules["TimeBetweenCommands"] = 2
 
 	// Setup signal handler
-	setupSignalHandler(config)
+	setupSignalHandler(conf)
 
 	// Verify we're logged out if we're using the cloud API
-	if config.API.LocalAPIEnabled && !config.API.CloudAPILoggedOut {
-		go log.Println("🚦 Local bot API enabled: logging out from cloud API servers...")
+	if conf.API.LocalAPIEnabled && !conf.API.CloudAPILoggedOut {
+		log.Println("🚦 Local bot API enabled: logging out from cloud API servers...")
 
 		// Start bot in regular mode
 		bot, err := tb.NewBot(tb.Settings{
 			URL:    "https://api.telegram.org",
-			Token:  config.Token,
+			Token:  conf.Token,
 			Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 		})
 
 		if err != nil {
-			go log.Println("Error starting bot during logout:", err)
+			log.Println("Error starting bot during logout:", err)
 			return
 		}
 
@@ -494,20 +649,20 @@ func main() {
 		success, err := bot.Logout()
 
 		if success {
-			go log.Println("✅ Successfully logged out from the cloud API server!")
+			log.Println("✅ Successfully logged out from the cloud API server!")
 		} else {
-			go log.Println("⚠️ Error logging out from the server:", err)
+			log.Println("⚠️ Error logging out from the server:", err)
 			return
 		}
 
 		// Success: update config, dump
-		config.API.CloudAPILoggedOut = true
-		utils.DumpConfig(config)
+		conf.API.CloudAPILoggedOut = true
+		config.DumpConfig(conf)
 
-		go log.Println("✅ Config updated to use local API!")
+		log.Println("✅ Config updated to use local API!")
 
 		// Warn if working directory is unset
-		if config.API.LocalWorkingDir == "working/dir/on/server" || config.API.LocalWorkingDir == "" {
+		if conf.API.LocalWorkingDir == "working/dir/on/server" || conf.API.LocalWorkingDir == "" {
 			log.Fatal("⚠️ Local API is enabled, but LocalWorkingDir is unset! Images cannot be downloaded.")
 		}
 
@@ -517,8 +672,8 @@ func main() {
 
 	// Create bot
 	bot, err := tb.NewBot(tb.Settings{
-		URL:    config.API.URL,
-		Token:  config.Token,
+		URL:    conf.API.URL,
+		Token:  conf.Token,
 		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
 	})
 
@@ -537,220 +692,23 @@ func main() {
 	// Define session: used to throw around structs that are needed frequently
 	session := Session{
 		bot:    bot,
-		config: config,
+		config: conf,
 		spam:   &Spam,
 		queue:  &sendQueue,
+		vnum:   vnum,
 	}
 
 	// Run messageSender in a goroutine
 	go messageSender(&session)
 
-	// Command handler for /start
-	bot.Handle("/start", func(c tb.Context) error {
-		// Anti-spam
-		message := *c.Message()
-		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return nil
-		}
-
-		// Construct message
-		startMessage := utils.HelpMessage(&message, &Spam)
-		msg := Message{
-			recipient: message.Sender,
-			bytes:     nil,
-			caption:   startMessage,
-			sopts:     tb.SendOptions{ParseMode: "Markdown"},
-		}
-
-		// Add to send queue
-		go addToQueue(&sendQueue, &msg)
-
-		// Check if the chat is actually new, or just calling /start again
-		if !utils.ChatExists(&message.Sender.ID, session.config) {
-			log.Println("🌟", message.Sender.ID, "bot added to new chat!")
-		}
-
-		return nil
-	})
-
-	// Command handler for /help
-	bot.Handle("/help", func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		// Anti-spam
-		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return nil
-		}
-
-		// Refresh ConversionCount for chat
-		utils.RefreshConversions(&Spam, message.Sender.ID)
-
-		// Help message
-		helpMessage := utils.HelpMessage(&message, &Spam)
-
-		// Construct message
-		msg := Message{
-			recipient: message.Sender,
-			bytes:     nil,
-			caption:   helpMessage,
-			sopts:     tb.SendOptions{ParseMode: "Markdown"},
-		}
-
-		// Add to send queue
-		go addToQueue(&sendQueue, &msg)
-
-		if message.Sender.ID != config.Owner {
-			log.Println("🙋", message.Sender.ID, "requested help!")
-		}
-
-		return nil
-	})
-
-	// Command handler for /stats
-	bot.Handle("/stats", func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		// Anti-spam
-		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return nil
-		}
-
-		// Get stats message
-		caption, sopts := utils.BuildStatsMsg(config, vnum)
-
-		// Construct message
-		msg := Message{recipient: message.Sender, bytes: nil, caption: caption, sopts: sopts}
-
-		// Add to send queue
-		go addToQueue(&sendQueue, &msg)
-
-		if message.Sender.ID != config.Owner {
-			log.Println("📊", message.Sender.ID, "requested to view stats!")
-		}
-
-		return nil
-	})
-
-	// Command handler for anti-spam statistics
-	bot.Handle("/spam", func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		// Anti-spam
-		if !utils.CommandPreHandler(&Spam, message.Sender.ID, message.Unixtime) {
-			return nil
-		}
-
-		// Check for owner status
-		if message.Sender.ID != config.Owner {
-			log.Println("🤨", message.Sender.ID, "tried to use /spam command")
-			return nil
-		}
-
-		// Refresh spam struct
-		utils.CleanConversionLogs(&Spam)
-
-		// Get string, send options
-		caption, sopts := utils.SpamInspectionString(&Spam)
-
-		// Construct message
-		msg := Message{recipient: message.Sender, bytes: nil, caption: caption, sopts: sopts}
-
-		// Add to send queue
-		go addToQueue(&sendQueue, &msg)
-
-		return nil
-	})
-
-	// Register photo handler
-	bot.Handle(tb.OnPhoto, func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		handleIncomingMedia(&session, &message, "photo")
-		return nil
-	})
-
-	// Register document handler
-	bot.Handle(tb.OnDocument, func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		handleIncomingMedia(&session, &message, "document")
-		return nil
-	})
-
-	// Register sticker handler
-	bot.Handle(tb.OnSticker, func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		handleIncomingMedia(&session, &message, "sticker")
-		return nil
-	})
-
-	// Register handler for incoming callback queries (i.e. stats refresh)
-	bot.Handle(tb.OnCallback, func(c tb.Context) error {
-		cb := *c.Callback()
-
-		// Anti-spam
-		if !utils.CommandPreHandler(&Spam, cb.Sender.ID, time.Now().Unix()) {
-			resp := tb.CallbackResponse{
-				CallbackID: cb.ID,
-				Text:       "⚠️ Please do not spam the bot for no reason.",
-				ShowAlert:  true,
-			}
-
-			bot.Respond(&cb, &resp)
-			return nil
-		}
-
-		if cb.Data == "stats/refresh" {
-			msg, sopts := utils.BuildStatsMsg(config, vnum)
-			bot.Edit(cb.Message, msg, &sopts)
-
-			resp := tb.CallbackResponse{
-				CallbackID: cb.ID,
-				Text:       "🔄 Statistics refreshed!",
-				ShowAlert:  false,
-			}
-
-			bot.Respond(&cb, &resp)
-		} else if cb.Data == "spam/refresh" {
-			// Check for owner status
-			if cb.Sender.ID != config.Owner {
-				log.Println("🤨", cb.Sender.ID, "tried to use spam/refresh callback")
-				return nil
-			}
-
-			// Refresh spam struct
-			utils.CleanConversionLogs(&Spam)
-
-			// Get string, send options
-			msg, sopts := utils.SpamInspectionString(&Spam)
-			bot.Edit(cb.Message, msg, &sopts)
-
-			resp := tb.CallbackResponse{
-				CallbackID: cb.ID,
-				Text:       "🔄 Information refreshed!",
-				ShowAlert:  false,
-			}
-
-			bot.Respond(&cb, &resp)
-		} else {
-			go log.Println("⚠️ Invalid callback data received:", cb.Data)
-		}
-
-		return nil
-	})
+	// Setup bot
+	setupBot(&session, &Spam)
 
 	// Dump statistics to disk once every 30 minutes, clean spam struct every 60 minutes
 	scheduler := gocron.NewScheduler(time.UTC)
-	scheduler.Every(30).Minutes().Do(utils.DumpConfig, config)
-	scheduler.Every(60).Minutes().Do(utils.CleanConversionLogs, &Spam)
+	scheduler.Every(30).Minutes().Do(config.DumpConfig, conf)
+	scheduler.Every(60).Minutes().Do(spam.CleanConversionLogs, &Spam)
 	scheduler.StartAsync()
 
-	bot.Start()
+	session.bot.Start()
 }

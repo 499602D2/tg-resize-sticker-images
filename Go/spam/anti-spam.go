@@ -1,4 +1,4 @@
-package utils
+package spam
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize/english"
-	tb "gopkg.in/tucnak/telebot.v3"
 )
 
 type AntiSpam struct {
@@ -28,7 +27,7 @@ type ConversionLog struct {
 	CommandSpamOffenses         int     // Count of spam offences (not used yet)
 }
 
-func SpamInspectionString(spam *AntiSpam) (string, tb.SendOptions) {
+func SpamInspectionString(spam *AntiSpam) string {
 	/* A simple function that prints some insights of the AntiSpam struct */
 	inspectionString := ""
 
@@ -59,22 +58,12 @@ func SpamInspectionString(spam *AntiSpam) (string, tb.SendOptions) {
 	}
 
 	// Construct the spam message
-	inspectionString += "🖼 *Conversion anti-spam statistics*\n"
-	inspectionString += fmt.Sprintf("Conversions (60 min): %d\n", totalConversions)
-	inspectionString += fmt.Sprintf("Max conversions: %d\n", maxConversionCount)
+	inspectionString += "🖼 *60-minute statistics*\n"
+	inspectionString += fmt.Sprintf("Active chats: %d\n", chatCount)
+	inspectionString += fmt.Sprintf("Images converted: %d\n", totalConversions)
+	inspectionString += fmt.Sprintf("Max conversions by a chat: %d", maxConversionCount)
 
-	inspectionString += "\n🔎 *Chat anti-spam statistics*\n"
-	inspectionString += fmt.Sprintf("Chats tracked: %d\n", chatCount)
-	inspectionString += fmt.Sprintf("Chats banned: %d\n", onceBannedChats)
-	inspectionString += fmt.Sprintf("Currently banned: %d", currentlyBannedChats)
-
-	// Construct keyboard for refresh functionality
-	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh", Data: "spam/refresh"}}}
-	rplm := tb.ReplyMarkup{InlineKeyboard: kb}
-
-	// Add Markdown parsing for a pretty link embed + keyboard
-	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &rplm}
-	return inspectionString, sopts
+	return inspectionString
 }
 
 func CleanConversionLogs(spam *AntiSpam) {
@@ -188,7 +177,7 @@ func ConversionPreHandler(spam *AntiSpam, chat int64) bool {
 			spam.ChatBanned[chat] = false
 			spam.ChatBannedUntilTimestamp[chat] = 0
 
-			go log.Printf("🚦 %d unratelimited! %d conversions remaining in log.",
+			log.Printf("🚦 %d unratelimited! %d conversions remaining in log.",
 				chat, len(ccLog.ConversionTimestamps))
 		}
 	}
@@ -219,7 +208,7 @@ func CommandPreHandler(spam *AntiSpam, chat int64, sentAt int64) bool {
 	if chatLog.NextAllowedCommandTimestamp > sentAt {
 		chatLog.CommandSpamOffenses++
 
-		go log.Printf("🚦 %d has %s",
+		log.Printf("🚦 %d has %s",
 			chat, english.Plural(chatLog.CommandSpamOffenses, "spam offence", ""))
 		chatLog.NextAllowedCommandTimestamp = time.Now().Unix() + spam.Rules["TimeBetweenCommands"]
 

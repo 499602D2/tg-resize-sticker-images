@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"time"
 
+	"tg-resize-sticker-images/spam"
+
 	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
 	tb "gopkg.in/tucnak/telebot.v3"
 )
 
-func HelpMessage(message *tb.Message, spam *AntiSpam) string {
+func HelpMessage(message *tb.Message, spam *spam.AntiSpam) string {
 	helpMessage := "🖼 Hi there! To use the bot, simply send your image to this chat as JPG/PNG/WebP."
 	helpMessage += " The bot can also copy stickers — try sending one!"
 
@@ -24,7 +26,7 @@ func HelpMessage(message *tb.Message, spam *AntiSpam) string {
 	return helpMessage
 }
 
-func RatelimitedMessage(spam *AntiSpam, chat int64) string {
+func RatelimitedMessage(spam *spam.AntiSpam, chat int64) string {
 	/* Construct the message for rate-limited chats. */
 	return fmt.Sprintf(
 		"🚦 *Slow down!* You're allowed to convert %d images per hour. %s %s.",

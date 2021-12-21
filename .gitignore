@@ -1,9 +1,8 @@
 .DS_Store
 __pycache__
 data
-Go/src/src
-Go/src/logs
-Go/src/config
-.vscode/launch.json
-Go/src/go.sum
-Go/src/cpu.pprof
+.vscode
+Go/logs
+Go/cpu.pprof
+Go/go.sum
+Go/config/bot-config.json
