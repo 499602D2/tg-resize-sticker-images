@@ -9,8 +9,14 @@ import (
 	"tg-resize-sticker-images/spam"
 
 	"github.com/dustin/go-humanize"
-	tb "gopkg.in/tucnak/telebot.v3"
+	tb "gopkg.in/telebot.v3"
 )
+
+func UpdateLastUserId(session *config.Session, id int64) {
+	session.Mutex.Lock()
+	session.LastUser = id
+	session.Mutex.Unlock()
+}
 
 func StatsPlusOneConversion(conf *config.Config) {
 	conf.Mutex.Lock()

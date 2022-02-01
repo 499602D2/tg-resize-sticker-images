@@ -8,7 +8,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/dustin/go-humanize/english"
-	tb "gopkg.in/tucnak/telebot.v3"
+	tb "gopkg.in/telebot.v3"
 )
 
 func HelpMessage(message *tb.Message, spam *spam.AntiSpam) string {

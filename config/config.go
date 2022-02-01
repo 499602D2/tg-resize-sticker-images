@@ -11,12 +11,26 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"tg-resize-sticker-images/queue"
+	"tg-resize-sticker-images/spam"
 	"time"
+
+	tb "gopkg.in/telebot.v3"
 )
+
+type Session struct {
+	/* A superstruct to simplify passing around other structs */
+	Bot      *tb.Bot          // Bot this session runs
+	Config   *Config          // Configuration for session
+	Spam     *spam.AntiSpam   // Anti-spam struct for session
+	Queue    *queue.SendQueue // Message send queue for session
+	LastUser int64            // Keep track of the last user to convert an image
+	Vnum     string           // Version number
+	Mutex    sync.Mutex       // Avoid concurrent writes
+}
 
 type Config struct {
 	Token           string     // Bot API token
-	API             API        // See API struct
 	Owner           int64      // Owner of the bot: skips logging
 	ConversionRate  int64      // Rate-limit for conversions per hour
 	StatConverted   int        // Keep track of converted images
@@ -24,13 +38,6 @@ type Config struct {
 	StatStarted     int64      // Unix timestamp of startup time
 	UniqueUsers     []int64    // List of all unique chats
 	Mutex           sync.Mutex // Mutex to avoid concurrent writes
-}
-
-type API struct {
-	LocalAPIEnabled   bool   // Is the local API in use?
-	CloudAPILoggedOut bool   // Logged out from the cloud API?
-	LocalWorkingDir   string // Local working directory
-	URL               string // API endpoint URL
 }
 
 func DumpConfig(config *Config) {
@@ -68,7 +75,7 @@ func LoadConfig() *Config {
 	configf := filepath.Join(configPath, "bot-config.json")
 	if _, err := os.Stat(configf); os.IsNotExist(err) {
 		// Config doesn't exist: create
-		fmt.Print("\nEnter bot token: ")
+		fmt.Print("Enter bot token: ")
 
 		reader := bufio.NewReader(os.Stdin)
 		inp, _ := reader.ReadString('\n')
@@ -76,13 +83,7 @@ func LoadConfig() *Config {
 
 		// Create, marshal
 		config := Config{
-			Token: botToken,
-			API: API{
-				LocalAPIEnabled:   false,
-				CloudAPILoggedOut: false,
-				LocalWorkingDir:   "working/dir/on/server",
-				URL:               "https://api.telegram.org",
-			},
+			Token:           botToken,
 			Owner:           0,
 			ConversionRate:  60,
 			StatConverted:   0,
@@ -90,6 +91,8 @@ func LoadConfig() *Config {
 			StatStarted:     time.Now().Unix(),
 			UniqueUsers:     []int64{},
 		}
+
+		fmt.Println("Success! Starting bot...")
 
 		go DumpConfig(&config)
 		return &config
