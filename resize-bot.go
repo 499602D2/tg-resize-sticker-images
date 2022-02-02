@@ -44,7 +44,7 @@ func setupSignalHandler(session *config.Session) {
 }
 
 func main() {
-	const vnum string = "1.8.0 (2022.02.02)"
+	const vnum string = "1.8.1 (2022.02.02)"
 
 	// Log to file
 	wd, _ := os.Getwd()
@@ -95,7 +95,7 @@ func main() {
 	bimg.VipsCacheSetMax(16)
 
 	// Setup messageSender
-	sendQueue := queue.SendQueue{MessagesPerSecond: 15.0}
+	sendQueue := queue.SendQueue{MessagesPerSecond: 10.0}
 
 	// Define session: used to throw around structs that are needed frequently
 	session := config.Session{
