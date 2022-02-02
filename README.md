@@ -13,7 +13,7 @@ The bot handles images exclusively in memory, and _does not_ store or cache rece
 The current version the bot runs can be seen by running the `/stats` command.
 
 ## Compiling
-Compiling the program from source requires [vips](https://www.libvips.org/.) Vips can be found in most package managers as `libvips`, including apt and homebrew. With vips installed, run `git clone https://github.com/499602D2/tg-resize-sticker-images`, cd into `/tg-resize-sticker-images` and run `go build -o resize-bot`. Now you can run the program with `./resize-bot`. The program stores log-files under `/logs`.
+Compiling the program from source requires [vips](https://www.libvips.org/). Vips can be found in most package managers as `libvips`, including apt and homebrew. With vips installed, run `git clone https://github.com/499602D2/tg-resize-sticker-images`, cd into `/tg-resize-sticker-images` and run `go build -o resize-bot`. Now you can run the program with `./resize-bot`. The program stores log-files under `/logs`.
 
 ### Possible compilation errors (macOS)
     go build github.com/davidbyttow/govips/v2/vips: invalid flag in pkg-config --cflags: -Xpreprocessor
