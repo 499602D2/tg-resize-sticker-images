@@ -1,12 +1,12 @@
 .DS_Store
 .vscode
+mem.prof
 cpu.pprof
 go.sum
-TODO.txt
+
 logs
 config/bot-config.json
 resize/test-images
 resize/test-images-large
-mem.prof
 resize/resize.test
 resize-bot
