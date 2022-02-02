@@ -77,7 +77,7 @@ func main() {
 
 	// Add rules
 	Spam.Rules["ConversionsPerHour"] = conf.ConversionRate
-	Spam.Rules["TimeBetweenCommands"] = 2
+	Spam.Rules["TimeBetweenCommands"] = 1
 
 	// Create bot
 	bot, err := tb.NewBot(tb.Settings{
