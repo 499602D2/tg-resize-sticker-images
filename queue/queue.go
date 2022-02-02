@@ -8,10 +8,10 @@ import (
 
 type Message struct {
 	// A message that is created for SendQueue
-	Recipient *tb.User        // Recipient of the message
-	Bytes     *[]byte         // Photo, as a byte array
-	Caption   string          // Caption for the photo
-	Sopts     *tb.SendOptions // Send options
+	Recipient *tb.User       // Recipient of the message
+	Bytes     *[]byte        // Photo, as a byte array
+	Caption   string         // Caption for the photo
+	Sopts     tb.SendOptions // Send options
 }
 
 type SendQueue struct {

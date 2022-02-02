@@ -61,8 +61,7 @@ func TestResizeFunction(t *testing.T) {
 
 			// Memory stats
 			vipsMem := bimg.VipsMemory()
-			fmt.Printf("Allocs: %d | Mem: %d | MemHighW: %d\n", vipsMem.Allocations, vipsMem.Memory, vipsMem.MemoryHighwater)
-
+			fmt.Printf("Allocs: %d | Mem: %d | MemHighW: %d\n\n", vipsMem.Allocations, vipsMem.Memory, vipsMem.MemoryHighwater)
 		}
 	}
 }

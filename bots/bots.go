@@ -27,7 +27,7 @@ func MessageSender(session *config.Session) {
 			for i, msg := range session.Queue.MessageQueue {
 				// If nil bytes, we are only sending text
 				if msg.Bytes == nil {
-					_, err := session.Bot.Send(msg.Recipient, msg.Caption, msg.Sopts)
+					_, err := session.Bot.Send(msg.Recipient, msg.Caption, &msg.Sopts)
 					if err != nil {
 						log.Println("Error sending non-bytes message in messageSender:", err)
 					}
@@ -72,7 +72,7 @@ func SetupBot(session *config.Session) {
 			Recipient: message.Sender,
 			Bytes:     nil,
 			Caption:   startMessage,
-			Sopts:     &tb.SendOptions{ParseMode: "Markdown"},
+			Sopts:     tb.SendOptions{ParseMode: "Markdown"},
 		}
 
 		// Add to send queue
@@ -107,7 +107,7 @@ func SetupBot(session *config.Session) {
 			Recipient: message.Sender,
 			Bytes:     nil,
 			Caption:   helpMessage,
-			Sopts:     &tb.SendOptions{ParseMode: "Markdown"},
+			Sopts:     tb.SendOptions{ParseMode: "Markdown"},
 		}
 
 		// Add to send queue
@@ -134,7 +134,7 @@ func SetupBot(session *config.Session) {
 		caption, sopts := stats.BuildStatsMsg(session.Config, aspam, session.Vnum)
 
 		// Construct message
-		msg := queue.Message{Recipient: message.Sender, Bytes: nil, Caption: caption, Sopts: &sopts}
+		msg := queue.Message{Recipient: message.Sender, Bytes: nil, Caption: caption, Sopts: sopts}
 
 		// Add to send queue
 		session.Queue.AddToQueue(&msg)

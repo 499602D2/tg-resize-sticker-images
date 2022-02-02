@@ -92,7 +92,7 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 			Recipient: message.Sender,
 			Bytes:     nil,
 			Caption:   utils.RatelimitedMessage(session.Spam, message.Sender.ID),
-			Sopts:     &tb.SendOptions{ParseMode: "Markdown"},
+			Sopts:     tb.SendOptions{ParseMode: "Markdown"},
 		}
 
 		// Add to send queue
