@@ -3,21 +3,19 @@ package resize
 import (
 	"bytes"
 	"fmt"
-	"image/png"
 	"log"
 	"tg-resize-sticker-images/queue"
 
-	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/h2non/bimg"
 	"github.com/yusukebe/go-pngquant"
 )
 
-func NewResizeImage(imgBytes []byte) (*queue.Message, error) {
+func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 	/*
 		Resizes an image in a byte buffer using libvips through bimg.
 	*/
 	// build image from buffer
-	image := bimg.NewImage(imgBytes)
+	image := bimg.NewImage(imgBuffer.Bytes())
 
 	// Read image dimensions for resize (int)
 	size, err := image.Size()
@@ -101,127 +99,4 @@ func NewResizeImage(imgBytes []byte) (*queue.Message, error) {
 	}
 
 	return &queue.Message{Recipient: nil, Bytes: &imageBytes, Caption: imgCaption}, nil
-}
-
-func ResizeImage(imgBytes []byte) (*queue.Message, error) {
-	/*
-		Resizes an image in a byte buffer using libvips through govips.
-
-		Inputs:
-			imgBytes: the image to resize
-
-		Outputs:
-			Message: a message object containing the image and caption
-			error: errors encountered during resize
-	*/
-
-	defer vips.ShutdownThread()
-
-	// Build image from buffer
-	img, err := vips.NewImageFromBuffer(imgBytes)
-	if err != nil {
-		errorMsg := fmt.Sprintf("⚠️ Error decoding image (%s).", err.Error())
-		if err.Error() == "unsupported image format" {
-			errorMsg += " Please send JPG/PNG/WebP images."
-		}
-
-		return &queue.Message{Recipient: nil, Bytes: nil, Caption: errorMsg}, err
-	}
-
-	// defer closing for later
-	defer img.Close()
-
-	// Dimensions for resize (int)
-	w, h := img.Width(), img.Height()
-
-	// Determine the factor by how much to scale the image with (vips wants f64)
-	var resScale float64
-	if w >= h {
-		resScale = 512.0 / float64(w)
-	} else {
-		resScale = 512.0 / float64(h)
-	}
-
-	// Resize, upscale status
-	err = img.Resize(resScale, vips.KernelAuto)
-	imgUpscaled := resScale > 1.0
-
-	if err != nil {
-		errorMsg := fmt.Sprintf("⚠️ Error resizing image (%s)", err.Error())
-
-		return &queue.Message{Recipient: nil, Bytes: nil, Caption: errorMsg}, err
-	}
-
-	// Increment compression ratio if size is too large
-	pngParams := vips.PngExportParams{
-		StripMetadata: true,
-		Compression:   6,
-		Interlace:     false,
-	}
-
-	// Encode as png into a new buffer
-	pngBuff, _, err := img.ExportPng(&pngParams)
-	if err != nil {
-		var errorMsg string
-		if err.Error() == "unsupported image format" {
-			errorMsg = "⚠️ Unsupported image format!"
-		} else {
-			errorMsg = fmt.Sprintf("⚠️ Error encoding image (%s)", err.Error())
-		}
-
-		return &queue.Message{Recipient: nil, Bytes: nil, Caption: errorMsg}, err
-	}
-
-	// Did we reach the target file size?
-	compressionFailed := len(pngBuff)/1024 >= 512
-
-	// If compression fails, run the image through pngquant
-	if compressionFailed {
-		expParams := vips.ExportParams{
-			Format:        vips.ImageTypePNG,
-			StripMetadata: true,
-			Compression:   6,
-		}
-
-		imgImg, err := img.ToImage(&expParams)
-		if err != nil {
-			log.Println("⚠️ Error exporting image as image.Image:", err)
-			return &queue.Message{Recipient: nil, Bytes: nil, Caption: err.Error()}, err
-		}
-
-		cImg, err := pngquant.Compress(imgImg, "6")
-		if err != nil {
-			log.Println("⚠️ Error compressing image with pngquant:", err)
-			return &queue.Message{Recipient: nil, Bytes: nil, Caption: err.Error()}, err
-		}
-
-		// Write to buffer
-		cBuff := new(bytes.Buffer)
-		err = png.Encode(cBuff, cImg)
-		if err != nil {
-			log.Println("⚠️ Error encoding cImg as png:", err)
-			return &queue.Message{Recipient: nil, Bytes: nil, Caption: err.Error()}, err
-		}
-
-		pngBuff = cBuff.Bytes()
-		compressionFailed = len(pngBuff)/1024 >= 512
-
-		if compressionFailed {
-			log.Println("\t⚠️ Image compression failed! Buffer length (KB):", len(cBuff.Bytes())/1024)
-		}
-	}
-
-	// Construct the caption
-	imgCaption := fmt.Sprintf(
-		"🖼 Here's your sticker-ready image (%dx%d)! Forward this to @Stickers.", img.Width(), img.Height(),
-	)
-
-	// Add notice to user if image was upscaled or compressed
-	if imgUpscaled {
-		imgCaption += "\n\n⚠️ Image upscaled! Quality may have been lost: consider using a larger image."
-	} else if compressionFailed {
-		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
-	}
-
-	return &queue.Message{Recipient: nil, Bytes: &pngBuff, Caption: imgCaption}, nil
 }

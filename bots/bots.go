@@ -36,7 +36,7 @@ func MessageSender(session *config.Session) {
 					sendDocument(session, &msg)
 				}
 
-				// Sleep long enough to stay within API limits: convert messagesPerSecond to ms
+				// Sleep long enough to stay within API limits
 				if i < len(session.Queue.MessageQueue)-1 {
 					time.Sleep(sleepDuration)
 				}

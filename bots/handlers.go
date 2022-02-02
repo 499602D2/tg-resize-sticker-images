@@ -32,21 +32,21 @@ func sendDocument(session *config.Session, msg *queue.Message) {
 	_, err := doc.Send(session.Bot, msg.Recipient, &sendOpts)
 
 	if err != nil {
-		log.Println("⚠️ Error sending message (notifying user):", err)
-		errorMessage := "🚦 Error sending finished image! Please try again."
+		log.Println("⚠️ Error sending message in sendDocument (notifying user):", err)
 
-		_, err := session.Bot.Send(msg.Recipient, errorMessage)
+		_, err := session.Bot.Send(msg.Recipient, "🚦 Error sending resized image! Please try again.")
 		if err != nil {
-			log.Println("\tUnable to notify user:", err)
+			log.Println("\tUnable to notify user about send failure:", err)
 		}
 
 		return
 	}
 
+	// If message is successfully sent, +1 conversion
 	stats.StatsPlusOneConversion(session.Config)
 }
 
-func getBytes(session *config.Session, message *tb.Message, mediaType string) ([]byte, error) {
+func getBytes(session *config.Session, message *tb.Message, mediaType string) (*bytes.Buffer, error) {
 	var err error
 	var tbFile *tb.File
 	var file io.Reader
@@ -66,20 +66,19 @@ func getBytes(session *config.Session, message *tb.Message, mediaType string) ([
 
 	if err != nil {
 		log.Println("⚠️ Error running GetFile: ", err)
-		return []byte{}, err
+		return &bytes.Buffer{}, err
 	}
 
-	// Download or copy to buffer, depending on API used
-	// copy file contents to imgBuf
+	// Copy file contents to imgBuf
 	var imgBuf bytes.Buffer
 	_, err = io.Copy(&imgBuf, file)
 
 	if err != nil {
 		log.Println("⚠️ Error copying image to buffer:", err)
-		return []byte{}, err
+		return &bytes.Buffer{}, err
 	}
 
-	return imgBuf.Bytes(), nil
+	return &imgBuf, nil
 }
 
 func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType string) {
@@ -114,18 +113,18 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 		// Add to send queue
 		session.Queue.AddToQueue(&msg)
 
-		// Log error, including media type
+		// Log error
 		log.Printf("Error downloading image: %s\n", err.Error())
 		return
 	}
 
-	// Resize
-	msg, err := resize.NewResizeImage(imgBytes)
+	// Resize, set message recipient
+	msg, err := resize.ResizeImage(imgBytes)
 	msg.Recipient = message.Sender
 
 	// Log errors encountered during resize
 	if err != nil {
-		log.Printf("Error resizing image: %s\n", err.Error())
+		log.Printf("Error resizing image (handleIncomingMedia): %s\n", err.Error())
 	}
 
 	// Add to send queue: regardless of resize outcome, the message is sent

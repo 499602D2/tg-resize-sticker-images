@@ -8,3 +8,5 @@ config/bot-config.json
 resize/test-images
 resize/test-images-large
 mem.prof
+resize/resize.test
+resize-bot
