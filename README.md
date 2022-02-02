@@ -2,7 +2,8 @@
 A fast and tiny, privacy-preserving bot that converts and compresses images so that they can be turned into Telegram stickers. Reachable on Telegram as [@resizeimgforstickerbot](https://t.me/resizeimgforstickerbot).
 
 **Bot features**
-- fast image conversion, compression, and sending due to in-memory processing
+- purely in-memory processing: nothing saved to disk
+- fast image conversion, compression, and sending
 - image conversion through libvips
 - image compression through pngquant
 - statistics periodically dumped from memory to a json-file
@@ -93,5 +94,5 @@ A sample configuration file looks as follows:
 
 1.7.1 (2021.12.21): code refactor, bump deps
 
-1.8.0 (2022.02.01): remove local API code, refactor, small fixes, rewrite resize function
+1.8.0 (2022.02.01): rewrite resize function, optimize download flow, remove local API code, refactor code, small fixes
 </details>
