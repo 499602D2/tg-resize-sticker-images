@@ -5,7 +5,6 @@ golang rewrite of the telegram sticker resize bot python program.
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -24,28 +23,28 @@ import (
 	tb "gopkg.in/telebot.v3"
 )
 
-func setupSignalHandler(conf *config.Config) {
+func setupSignalHandler(session *config.Session) {
 	// Listens for incoming interrupt signals, dumps config if detected
 	channel := make(chan os.Signal)
 	signal.Notify(channel, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	go func() {
 		<-channel
+		// Log shutdown
 		log.Println("🚦 Received interrupt signal: dumping config...")
-		config.DumpConfig(conf)
+
+		// Dump config, close bot connection
+		config.DumpConfig(session.Config)
+		session.Bot.Close()
+
+		// Shutdown bimg, exit
+		bimg.Shutdown()
 		os.Exit(0)
 	}()
 }
 
 func main() {
-	const vnum string = "1.8.0 (2022.02.01)"
-
-	// Variables to store CLI args
-	var profileMemory bool
-
-	// Read CLI arguments
-	flag.BoolVar(&profileMemory, "profile-memory", false, "Specify to profile memory usage")
-	flag.Parse()
+	const vnum string = "1.8.0 (2022.02.02)"
 
 	// Log to file
 	wd, _ := os.Getwd()
@@ -80,9 +79,6 @@ func main() {
 	Spam.Rules["ConversionsPerHour"] = conf.ConversionRate
 	Spam.Rules["TimeBetweenCommands"] = 2
 
-	// Setup signal handler
-	setupSignalHandler(conf)
-
 	// Create bot
 	bot, err := tb.NewBot(tb.Settings{
 		Token:  conf.Token,
@@ -99,7 +95,7 @@ func main() {
 	bimg.VipsCacheSetMax(16)
 
 	// Setup messageSender
-	sendQueue := queue.SendQueue{MessagesPerSecond: 30.0}
+	sendQueue := queue.SendQueue{MessagesPerSecond: 15.0}
 
 	// Define session: used to throw around structs that are needed frequently
 	session := config.Session{
@@ -110,11 +106,14 @@ func main() {
 		Vnum:   vnum,
 	}
 
+	// Setup signal handler
+	setupSignalHandler(&session)
+
 	// Run MessageSender in a goroutine
 	go bots.MessageSender(&session)
 
 	// Setup bot
-	bots.SetupBot(&session, &Spam)
+	bots.SetupBot(&session)
 
 	// Dump statistics to disk once every 30 minutes, clean spam struct every 60 minutes
 	scheduler := gocron.NewScheduler(time.UTC)

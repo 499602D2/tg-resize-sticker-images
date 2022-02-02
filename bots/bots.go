@@ -54,9 +54,10 @@ func MessageSender(session *config.Session) {
 	}
 }
 
-func SetupBot(session *config.Session, aspam *spam.AntiSpam) {
+func SetupBot(session *config.Session) {
 	// Command handler for /start
 	bot := session.Bot
+	aspam := session.Spam
 
 	bot.Handle("/start", func(c tb.Context) error {
 		// Anti-spam
