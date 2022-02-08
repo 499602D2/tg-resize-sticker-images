@@ -1,4 +1,9 @@
 #!/bin/bash
 
 SHA=$(git rev-parse --short HEAD)
-go build -ldflags "-X main.GitSHA=$SHA" -o tg-resize-sticker-images
+
+LDFLAGS=(
+	"-X 'main.GitSHA=$SHA'"
+)
+
+go build -ldflags="${LDFLAGS[*]}" -o tg-resize-sticker-images
