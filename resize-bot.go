@@ -5,6 +5,7 @@ golang rewrite of the telegram sticker resize bot python program.
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -22,6 +23,9 @@ import (
 
 	tb "gopkg.in/telebot.v3"
 )
+
+// Variables injected at build-time
+var GitSHA string
 
 func setupSignalHandler(session *config.Session) {
 	// Listens for incoming interrupt signals, dumps config if detected
@@ -44,7 +48,8 @@ func setupSignalHandler(session *config.Session) {
 }
 
 func main() {
-	const vnum string = "1.8.1 (2022.02.02)"
+	// Get commit the bot is running
+	vnum := fmt.Sprintf("1.8.2 (%s)", GitSHA[0:5])
 
 	// Log to file
 	wd, _ := os.Getwd()
