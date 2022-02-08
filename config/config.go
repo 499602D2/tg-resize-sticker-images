@@ -52,13 +52,18 @@ func DumpConfig(config *Config) {
 	configf := filepath.Join(wd, "config", "bot-config.json")
 
 	file, err := os.Create(configf)
+
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}
 
 	// Write, close
-	file.Write(jsonbytes)
+	_, err = file.Write(jsonbytes)
+	if err != nil {
+		log.Printf("⚠️ Error writing config to disk! Err: %s\n", err)
+	}
+
 	file.Close()
 }
 

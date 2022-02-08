@@ -47,9 +47,8 @@ func sendDocument(session *config.Session, msg *queue.Message) {
 }
 
 func getBytes(session *config.Session, message *tb.Message, mediaType string) (*bytes.Buffer, error) {
-	var err error
+	// Variables
 	var tbFile *tb.File
-	var file io.Reader
 
 	// Get file with a method corresponding to the media type
 	switch mediaType {
@@ -62,7 +61,7 @@ func getBytes(session *config.Session, message *tb.Message, mediaType string) (*
 	}
 
 	// Get file
-	file, err = session.Bot.File(tbFile)
+	file, err := session.Bot.File(tbFile)
 
 	if err != nil {
 		log.Println("⚠️ Error running GetFile: ", err)

@@ -58,7 +58,7 @@ func SpamInspectionString(spam *AntiSpam) string {
 	}
 
 	// Construct the spam message
-	inspectionString += "🖼 *60-minute statistics*\n"
+	inspectionString += "🖼 *1-hour statistics*\n"
 	inspectionString += fmt.Sprintf("Active chats: %d\n", chatCount)
 	inspectionString += fmt.Sprintf("Images converted: %d\n", totalConversions)
 	inspectionString += fmt.Sprintf("Max conversions by a chat: %d", maxConversionCount)
