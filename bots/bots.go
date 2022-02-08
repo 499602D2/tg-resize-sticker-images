@@ -55,19 +55,20 @@ func MessageSender(session *config.Session) {
 }
 
 func SetupBot(session *config.Session) {
-	// Command handler for /start
+	// Pull pointers from session for cleaner code
 	bot := session.Bot
 	aspam := session.Spam
 
+	// Command handler for /start
 	bot.Handle("/start", func(c tb.Context) error {
 		// Anti-spam
-		message := *c.Message()
+		message := c.Message()
 		if !spam.CommandPreHandler(aspam, message.Sender.ID, message.Unixtime) {
 			return nil
 		}
 
 		// Construct message
-		startMessage := utils.HelpMessage(&message, aspam)
+		startMessage := utils.HelpMessage(message, aspam)
 		msg := queue.Message{
 			Recipient: message.Sender,
 			Bytes:     nil,
@@ -89,7 +90,7 @@ func SetupBot(session *config.Session) {
 	// Command handler for /help
 	bot.Handle("/help", func(c tb.Context) error {
 		// Pointer to message
-		message := *c.Message()
+		message := c.Message()
 
 		// Anti-spam
 		if !spam.CommandPreHandler(aspam, message.Sender.ID, message.Unixtime) {
@@ -100,7 +101,7 @@ func SetupBot(session *config.Session) {
 		spam.RefreshConversions(aspam, message.Sender.ID)
 
 		// Help message
-		helpMessage := utils.HelpMessage(&message, aspam)
+		helpMessage := utils.HelpMessage(message, aspam)
 
 		// Construct message
 		msg := queue.Message{
@@ -123,7 +124,7 @@ func SetupBot(session *config.Session) {
 	// Command handler for /stats
 	bot.Handle("/stats", func(c tb.Context) error {
 		// Pointer to message
-		message := *c.Message()
+		message := c.Message()
 
 		// Anti-spam
 		if !spam.CommandPreHandler(aspam, message.Sender.ID, message.Unixtime) {
@@ -148,34 +149,26 @@ func SetupBot(session *config.Session) {
 
 	// Register photo handler
 	bot.Handle(tb.OnPhoto, func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		handleIncomingMedia(session, &message, "photo")
+		handleIncomingMedia(session, c.Message(), "photo")
 		return nil
 	})
 
 	// Register document handler
 	bot.Handle(tb.OnDocument, func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		handleIncomingMedia(session, &message, "document")
+		handleIncomingMedia(session, c.Message(), "document")
 		return nil
 	})
 
 	// Register sticker handler
 	bot.Handle(tb.OnSticker, func(c tb.Context) error {
-		// Pointer to message
-		message := *c.Message()
-
-		handleIncomingMedia(session, &message, "sticker")
+		handleIncomingMedia(session, c.Message(), "sticker")
 		return nil
 	})
 
 	// Register handler for incoming callback queries (i.e. stats refresh)
 	bot.Handle(tb.OnCallback, func(c tb.Context) error {
-		cb := *c.Callback()
+		// Pointer to received callback
+		cb := c.Callback()
 
 		// Anti-spam
 		if !spam.CommandPreHandler(aspam, cb.Sender.ID, time.Now().Unix()) {
@@ -185,21 +178,37 @@ func SetupBot(session *config.Session) {
 				ShowAlert:  true,
 			}
 
-			bot.Respond(&cb, &resp)
+			err := bot.Respond(cb, &resp)
+			if err != nil {
+				log.Println("Error responding to callback!", err)
+			}
+
 			return nil
 		}
 
 		if cb.Data == "stats/refresh" {
+			// Create updated message
 			msg, sopts := stats.BuildStatsMsg(session.Config, aspam, session.Vnum)
-			bot.Edit(cb.Message, msg, &sopts)
 
+			// Edit message with new content
+			_, err := bot.Edit(cb.Message, msg, &sopts)
+			if err != nil {
+				log.Println("Error editing stats message!", err)
+				return nil
+			}
+
+			// Callback response
 			resp := tb.CallbackResponse{
 				CallbackID: cb.ID,
 				Text:       "🔄 Statistics refreshed!",
 				ShowAlert:  false,
 			}
 
-			bot.Respond(&cb, &resp)
+			err = bot.Respond(cb, &resp)
+			if err != nil {
+				log.Println("Error responding to callback!", err)
+			}
+
 		} else {
 			log.Println("⚠️ Invalid callback data received:", cb.Data)
 		}
