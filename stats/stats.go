@@ -91,7 +91,7 @@ func BuildStatsMsg(conf *config.Config, aspam *spam.AntiSpam, vnum string) (stri
 	)
 
 	// Version number, link to Github
-	gitUrl := "https://github.com/499602D2/tg-resize-sticker-images"
+	const gitUrl = "https://github.com/499602D2/tg-resize-sticker-images"
 	msg += fmt.Sprintf("\nRunning version [%s](%s)", vnum, gitUrl)
 
 	// Construct keyboard for refresh functionality
