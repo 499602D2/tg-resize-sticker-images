@@ -2,6 +2,7 @@ package bots
 
 import (
 	"log"
+	"strings"
 	"tg-resize-sticker-images/config"
 	"tg-resize-sticker-images/queue"
 	"tg-resize-sticker-images/spam"
@@ -190,11 +191,14 @@ func SetupBot(session *config.Session) {
 			// Create updated message
 			msg, sopts := stats.BuildStatsMsg(session.Config, aspam, session.Vnum)
 
-			// Edit message with new content
+			// Edit message with new content if the messages aren't identical
 			_, err := bot.Edit(cb.Message, msg, &sopts)
 			if err != nil {
-				log.Println("Error editing stats message!", err)
-				return nil
+				// If error is caused by something other than message not being modified, return
+				if !strings.Contains(err.Error(), "message is not modified") {
+					log.Println("Error editing stats message!", err)
+					return nil
+				}
 			}
 
 			// Callback response
