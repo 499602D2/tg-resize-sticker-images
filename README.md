@@ -13,10 +13,10 @@ The bot handles images exclusively in memory, and _does not_ store or cache rece
 The current version the bot runs can be seen by running the `/stats` command.
 
 ## Compiling
-Compiling the program from source requires [vips](https://www.libvips.org/). Vips can be found in most package managers as `libvips`, including apt and homebrew. With vips installed, run `git clone https://github.com/499602D2/tg-resize-sticker-images`, cd into `/tg-resize-sticker-images` and run `go build -o resize-bot`. Now you can run the program with `./resize-bot`. The program stores log-files under `/logs`.
+Compiling the program from source requires [vips](https://www.libvips.org/). Vips can be found in most package managers as `libvips`, including apt and homebrew. With vips installed, run `git clone https://github.com/499602D2/tg-resize-sticker-images`, cd into `/tg-resize-sticker-images` and run `./build.sh`. Now you can run the program with `./tg-resize-sticker-images`. The program stores log-files under `/logs`.
 
 ### Possible compilation errors (macOS)
-    go build github.com/davidbyttow/govips/v2/vips: invalid flag in pkg-config --cflags: -Xpreprocessor
+    go build github.com/h2non/bimg: invalid flag in pkg-config --cflags: -Xpreprocessor
 
 This can be fixed by running `export CGO_CFLAGS_ALLOW=-Xpreprocessor` in your shell.
 
@@ -45,6 +45,7 @@ A sample configuration file looks as follows:
 ## Changelog
 <details>
   <summary>View historical changelog</summary>
+
 	0.0.0 (2021.03.29): started
 
 	1.0.0 (2021.05.15): first go implementation
@@ -96,4 +97,6 @@ A sample configuration file looks as follows:
 	1.8.0 (2022.02.02): rewrite resize function, optimize download flow, remove local API code, refactor code, small fixes
 
 	1.8.1 (2022.02.02): go mod tidy, fix nil pointer dereference
+
+	1.8.2 (2022.02.08): bump deps, added build script, optimize request flow
 </details>
