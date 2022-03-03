@@ -54,10 +54,10 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 	}
 
 	// Convert image to a PNG
-	imageBytes, err := image.Convert(3)
+	imageBytes, err := image.Convert(bimg.ImageType(3))
 	if err != nil {
 		// If conversion process fails, notify user
-		log.Println("Error converting image to PNG!", err)
+		log.Println("Error converting image to PNG!", err.Error())
 
 		return &queue.Message{
 			Recipient: nil,
