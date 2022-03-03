@@ -33,7 +33,7 @@ A sample configuration file looks as follows:
     "Token": "12345:abcdefgh",
     "Owner": 12345,
     "StatConverted": 10,
-    "StatUniqueChats" (2,
+    "StatUniqueChats": 2,
     "StatStarted": 1629725920,
     "UniqueUsers": [
        12345,
