@@ -10,7 +10,7 @@ import (
 	"tg-resize-sticker-images/resize"
 	"tg-resize-sticker-images/spam"
 	"tg-resize-sticker-images/stats"
-	"tg-resize-sticker-images/utils"
+	"tg-resize-sticker-images/templates"
 	"time"
 
 	tb "gopkg.in/telebot.v3"
@@ -90,7 +90,7 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 		msg := queue.Message{
 			Recipient: message.Sender,
 			Bytes:     nil,
-			Caption:   utils.RatelimitedMessage(session.Spam, message.Sender.ID),
+			Caption:   templates.RatelimitedMessage(session.Spam, message.Sender.ID),
 			Sopts:     tb.SendOptions{ParseMode: "Markdown"},
 		}
 

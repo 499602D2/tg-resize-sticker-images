@@ -7,7 +7,7 @@ import (
 	"tg-resize-sticker-images/queue"
 	"tg-resize-sticker-images/spam"
 	"tg-resize-sticker-images/stats"
-	"tg-resize-sticker-images/utils"
+	"tg-resize-sticker-images/templates"
 
 	"time"
 
@@ -51,7 +51,7 @@ func MessageSender(session *config.Session) {
 		}
 
 		// Sleep while waiting for updates
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 
@@ -69,7 +69,7 @@ func SetupBot(session *config.Session) {
 		}
 
 		// Construct message
-		startMessage := utils.HelpMessage(message, aspam)
+		startMessage := templates.HelpMessage(message, aspam)
 		msg := queue.Message{
 			Recipient: message.Sender,
 			Bytes:     nil,
@@ -102,7 +102,7 @@ func SetupBot(session *config.Session) {
 		spam.RefreshConversions(aspam, message.Sender.ID)
 
 		// Help message
-		helpMessage := utils.HelpMessage(message, aspam)
+		helpMessage := templates.HelpMessage(message, aspam)
 
 		// Construct message
 		msg := queue.Message{

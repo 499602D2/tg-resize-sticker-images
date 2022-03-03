@@ -49,7 +49,7 @@ func setupSignalHandler(session *config.Session) {
 
 func main() {
 	// Get commit the bot is running
-	vnum := fmt.Sprintf("1.8.2 (%s)", GitSHA[0:7])
+	vnum := fmt.Sprintf("1.8.3 (%s)", GitSHA[0:7])
 
 	// Log to file
 	wd, _ := os.Getwd()
