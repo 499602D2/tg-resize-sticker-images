@@ -118,13 +118,8 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 	}
 
 	// Resize, set message recipient
-	msg, err := resize.ResizeImage(imgBytes)
+	msg, _ := resize.ResizeImage(imgBytes)
 	msg.Recipient = message.Sender
-
-	// Log errors encountered during resize
-	if err != nil {
-		log.Printf("Error resizing image (handleIncomingMedia): %s\n", err.Error())
-	}
 
 	// Add to send queue: regardless of resize outcome, the message is sent
 	session.Queue.AddToQueue(msg)
