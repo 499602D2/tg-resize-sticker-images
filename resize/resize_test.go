@@ -47,7 +47,12 @@ func TestResizeFunction(t *testing.T) {
 
 			// Create buffer
 			var imgBuf bytes.Buffer
-			imgBuf.ReadFrom(file)
+			_, err = imgBuf.ReadFrom(file)
+
+			if err != nil {
+				t.Logf("Error reading image from file! %s", err.Error())
+				t.Fail()
+			}
 
 			// Resize
 			_, err = ResizeImage(&imgBuf)
