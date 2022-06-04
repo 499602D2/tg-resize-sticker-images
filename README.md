@@ -99,4 +99,10 @@ A sample configuration file looks as follows:
 	1.8.1 (2022.02.02): go mod tidy, fix nil pointer dereference
 
 	1.8.2 (2022.02.08): bump deps, added build script, optimize request flow
+
+	1.8.3 (2022.03.03): attempt to fix resize errors, reduce queue clear interval, bump gocron 
+
+	1.9.0 (2022.03.04): improve resize flow and fix errors when processing small images
+
+	1.10.10 (2022.06.04): simplified and improved spam management, logging and message changes, code cleanup
 </details>
