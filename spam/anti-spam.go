@@ -1,34 +1,57 @@
 package spam
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/dustin/go-humanize/english"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 )
 
+// In-memory struct keeping track of banned chats and per-chat activity
 type AntiSpam struct {
-	/* In-memory struct keeping track of banned chats and per-chat activity */
-	ChatBanned               map[int64]bool          // Simple "if ChatBanned[chat] { do }" checks
-	ChatBannedUntilTimestamp map[int64]int64         // How long banned chats are banned for
-	ChatConversionLog        map[int64]ConversionLog // Map chat ID to a ConversionLog struct
-	Rules                    map[string]int64        // Arbitrary rules for code flexibility
-	Mutex                    sync.Mutex              // Mutex to avoid concurrent map writes
+	ChatBanned               map[int64]bool           // Simple "if ChatBanned[chat] { do }" checks
+	ChatBannedUntilTimestamp map[int64]int64          // How long banned chats are banned for
+	ChatConversionLog        map[int64]*ConversionLog // Map chat ID to a ConversionLog struct
+	Rules                    map[string]int64         // Arbitrary rules for code flexibility
+	Mutex                    sync.Mutex               // Mutex to avoid concurrent map writes
 }
 
+// Per-chat struct keeping track of activity for spam management
 type ConversionLog struct {
-	/* Per-chat struct keeping track of activity for spam management */
-	ConversionCount             int     // Image conversion count
-	ConversionTimestamps        []int64 // Trailing timestamps of converted images
-	NextAllowedCommandTimestamp int64   // Next time the chat is allowed to convert an image
-	CommandSpamOffenses         int     // Count of spam offences (not used yet)
+	ConversionCount        int     // Image conversion count
+	ConversionTimestamps   []int64 // Trailing timestamps of converted images
+	LastCommandSendTime    time.Time
+	UserLimiter            rate.Limiter
+	RateLimitMessageSent   bool // Has the user been notified that they're rate-limited?
+	RateLimitMessageSentAt time.Time
 }
 
+// Enforce a token-based rate-limiter on a per-chat basis
+func (spam *AntiSpam) RunUserLimiter(id int64, tokens int) {
+	if spam.ChatConversionLog[id] == nil {
+		spam.ChatConversionLog[id] = &ConversionLog{
+			UserLimiter: *rate.NewLimiter(1, 1),
+		}
+	}
+
+	// Run limiter
+	err := spam.ChatConversionLog[id].UserLimiter.WaitN(
+		context.Background(), tokens,
+	)
+
+	if err != nil {
+		log.Error().Err(err).Msg("Running user-limiter failed")
+	}
+
+	spam.ChatConversionLog[id].LastCommandSendTime = time.Now()
+}
+
+// A simple function that prints some insights of the AntiSpam struct
 func SpamInspectionString(spam *AntiSpam) string {
-	/* A simple function that prints some insights of the AntiSpam struct */
 	inspectionString := ""
 
 	// Amount of chats in AntiSpam
@@ -66,10 +89,9 @@ func SpamInspectionString(spam *AntiSpam) string {
 	return inspectionString
 }
 
+/* Used to periodically clean the conversion log, beacause
+many users may never reach the x-image hourly conversion limit. */
 func CleanConversionLogs(spam *AntiSpam) {
-	/* Used to periodically clean the conversion log, beacause
-	many users may never reach the x-image hourly conversion limit. */
-
 	// Lock struct to avoid concurrent writes
 	spam.Mutex.Lock()
 
@@ -82,22 +104,26 @@ func CleanConversionLogs(spam *AntiSpam) {
 	spam.Mutex.Unlock()
 }
 
+/* Count the amount of conversions in the last hour.
+Used by /help and /spam, plus periodically ran automatically. */
 func RefreshConversions(spam *AntiSpam, chat int64) {
-	/* Count the amount of conversions in the last hour.
-	Used by /help and /spam, plus periodically ran automatically. */
-	if spam.ChatConversionLog[chat].ConversionCount == 0 {
+	// Extract chat's conversion log for cleaner code
+	ccLog := spam.ChatConversionLog[chat]
+
+	// Mutex has already been locked, so modifying is safe
+	if ccLog.ConversionCount == 0 {
 		// If more than 3600 seconds since last command, remove entry
-		if spam.ChatConversionLog[chat].NextAllowedCommandTimestamp <= time.Now().Unix()-3600 {
+		if time.Since(ccLog.LastCommandSendTime) > time.Hour {
 			delete(spam.ChatConversionLog, chat)
 		}
+
 		return
 	}
 
-	// Extract chat's conversion log
-	ccLog := spam.ChatConversionLog[chat]
-
 	// Search for last index outside of the trailing 3600 seconds
 	trailingHour := time.Now().Unix() - 3600
+
+	// Last time stamp that is out of range (OOR)
 	lastOOR := sort.Search(
 		len(ccLog.ConversionTimestamps),
 		func(i int) bool { return ccLog.ConversionTimestamps[i] > trailingHour },
@@ -116,16 +142,19 @@ func RefreshConversions(spam *AntiSpam, chat int64) {
 	// Check if user is banned
 	if spam.ChatBanned[chat] {
 		if spam.ChatBannedUntilTimestamp[chat] <= time.Now().Unix() {
+			// If user should be unbanned, do it now
 			spam.ChatBanned[chat] = false
 			spam.ChatBannedUntilTimestamp[chat] = -1
+			ccLog.RateLimitMessageSent = false
+			ccLog.RateLimitMessageSentAt = time.Time{}
 
-			log.Println("⌛️ Chat", chat, "unbanned in RefreshConversions!")
+			log.Info().Msgf("⌛️ Chat %d unbanned in RefreshConversions", chat)
 		}
 	}
 
 	// If the chat has 0 conversions after refresh, and no fresh command calls, delete it
 	if len(ccLog.ConversionTimestamps) == 0 {
-		if ccLog.NextAllowedCommandTimestamp <= time.Now().Unix()-3600 {
+		if time.Since(ccLog.LastCommandSendTime) > time.Hour {
 			delete(spam.ChatConversionLog, chat)
 			return
 		}
@@ -133,33 +162,42 @@ func RefreshConversions(spam *AntiSpam, chat int64) {
 
 	// Update ConversionCount, push ConversionLog to spam struct
 	ccLog.ConversionCount = len(ccLog.ConversionTimestamps)
-	spam.ChatConversionLog[chat] = ccLog
 }
 
+/* When a conversion is requested, ConversionPreHandler verifies the
+chat is not banned and has not exceeded the hourly conversion limit. */
 func ConversionPreHandler(spam *AntiSpam, chat int64) bool {
-	/* When a conversion is requested, ConversionPreHandler verifies the
-	chat is not banned and has not exceeded the hourly conversion limit. */
-
 	// Lock spam struct to avoid concurrent writes
 	spam.Mutex.Lock()
+	defer spam.Mutex.Unlock()
 
 	// Check if user is banned
 	if spam.ChatBanned[chat] {
 		if spam.ChatBannedUntilTimestamp[chat] <= time.Now().Unix() {
 			// Chat's ban period has ended, lift ban
-			log.Println("⌛️ Chat", chat, "unbanned!")
+			log.Info().Msgf("⌛️ Chat %d unbanned", chat)
 			spam.ChatBanned[chat] = false
 			spam.ChatBannedUntilTimestamp[chat] = -1
 		} else {
 			// Chat is still banned
-			spam.Mutex.Unlock()
 			return false
 		}
 	}
 
-	// Remove every timestamp older than an hour
-	RefreshConversions(spam, chat)
+	// Check that user's spam log exists
+	if spam.ChatConversionLog[chat] == nil {
+		spam.ChatConversionLog[chat] = &ConversionLog{
+			UserLimiter: *rate.NewLimiter(1, 2),
+		}
+	}
+
+	// Pointer to chat's spam log
 	ccLog := spam.ChatConversionLog[chat]
+
+	// Remove every timestamp older than an hour, if chat seems like they might be bannable
+	if ccLog.ConversionCount >= int(spam.Rules["ConversionsPerHour"]) {
+		RefreshConversions(spam, chat)
+	}
 
 	// If chat has too many conversion within trailing hour, update ChatBannedUntilTimestamp
 	if ccLog.ConversionCount >= int(spam.Rules["ConversionsPerHour"]) {
@@ -175,50 +213,33 @@ func ConversionPreHandler(spam *AntiSpam, chat int64) bool {
 		if spam.ChatBanned[chat] {
 			spam.ChatBanned[chat] = false
 			spam.ChatBannedUntilTimestamp[chat] = 0
+			ccLog.RateLimitMessageSent = false
+			ccLog.RateLimitMessageSentAt = time.Time{}
 
-			log.Printf("🚦 %d unratelimited! %d conversions remaining in log.",
+			log.Info().Msgf("🚦 %d unratelimited! %d conversions remaining in log",
 				chat, len(ccLog.ConversionTimestamps))
 		}
 	}
 
-	// Push updated ConversionLog to spam struct
-	spam.ChatConversionLog[chat] = ccLog
-
-	// Return if chat was banned
 	if spam.ChatBanned[chat] {
-		spam.Mutex.Unlock()
+		// Return if chat was banned
 		return false
 	}
 
 	// No rules broken: update spam log
 	ccLog.ConversionCount++
 	ccLog.ConversionTimestamps = append(ccLog.ConversionTimestamps, time.Now().Unix())
-	spam.ChatConversionLog[chat] = ccLog
 
-	spam.Mutex.Unlock()
 	return true
 }
 
-func CommandPreHandler(spam *AntiSpam, chat int64, sentAt int64) bool {
-	/* When user sends a command, verify the chat is eligible for a command parse. */
-	chatLog := spam.ChatConversionLog[chat]
+func (spam *AntiSpam) ChatReceivedRateLimitMessage(chat int64) {
+	// Lock spam struct to avoid concurrent writes
 	spam.Mutex.Lock()
+	defer spam.Mutex.Unlock()
 
-	if chatLog.NextAllowedCommandTimestamp > sentAt {
-		chatLog.CommandSpamOffenses++
-
-		log.Printf("🚦 %d has %s",
-			chat, english.Plural(chatLog.CommandSpamOffenses, "spam offence", ""))
-		chatLog.NextAllowedCommandTimestamp = time.Now().Unix() + spam.Rules["TimeBetweenCommands"]
-
-		spam.ChatConversionLog[chat] = chatLog
-		spam.Mutex.Unlock()
-		return false
-	}
-
-	// No spam, update chat's ConversionLog
-	chatLog.NextAllowedCommandTimestamp = time.Now().Unix() + spam.Rules["TimeBetweenCommands"]
-	spam.ChatConversionLog[chat] = chatLog
-	spam.Mutex.Unlock()
-	return true
+	// Update flag
+	ccLog := spam.ChatConversionLog[chat]
+	ccLog.RateLimitMessageSent = true
+	ccLog.RateLimitMessageSentAt = time.Now()
 }
