@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/dustin/go-humanize v1.0.0
 	github.com/go-co-op/gocron v1.13.0
-	github.com/h2non/bimg v1.1.9
+	github.com/h2non/bimg v1.1.6
 	github.com/yusukebe/go-pngquant v0.0.0-20200223090257-49b91f11b627
 	gopkg.in/telebot.v3 v3.0.0
 )
