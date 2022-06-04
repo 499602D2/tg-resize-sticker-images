@@ -5,8 +5,8 @@ golang rewrite of the telegram sticker resize bot python program.
 package main
 
 import (
+	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,12 +20,16 @@ import (
 
 	"github.com/go-co-op/gocron"
 	"github.com/h2non/bimg"
+	"golang.org/x/time/rate"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	tb "gopkg.in/telebot.v3"
 )
 
 // Variables injected at build-time
-var GitSHA string
+var GitSHA = "0000000"
 
 func setupSignalHandler(session *config.Session) {
 	// Listens for incoming interrupt signals, dumps config if detected
@@ -35,7 +39,7 @@ func setupSignalHandler(session *config.Session) {
 	go func() {
 		<-channel
 		// Log shutdown
-		log.Println("🚦 Received interrupt signal: dumping config...")
+		log.Info().Msg("🚦 Received interrupt signal: dumping config...")
 
 		// Dump config, close bot connection
 		config.DumpConfig(session.Config)
@@ -49,26 +53,37 @@ func setupSignalHandler(session *config.Session) {
 
 func main() {
 	// Get commit the bot is running
-	vnum := fmt.Sprintf("1.9.0 (%s)", GitSHA[0:7])
+	vnum := fmt.Sprintf("1.10.0 (%s)", GitSHA[0:7])
 
 	// Log to file
 	wd, _ := os.Getwd()
 	logPath := filepath.Join(wd, "logs")
+
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		_ = os.Mkdir(logPath, os.ModePerm)
 	}
 
-	// Set-up logging
-	logFilePath := filepath.Join(logPath, "bot-log.log")
-	logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		log.Println(err)
+	var debug bool
+	flag.BoolVar(&debug, "debug", false, "Specify to show logs in the console")
+	flag.Parse()
+
+	if !debug {
+		// If not debugging, log to file
+		logFilePath := filepath.Join(logPath, "bot-log.log")
+		logf, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		defer logf.Close()
+
+		if err != nil {
+			log.Fatal().Err(err).Msg("Setting up log-file failed")
+		}
+
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: logf, NoColor: true, TimeFormat: time.RFC822Z})
+	} else {
+		// If debugging, output to console
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC822Z})
 	}
 
-	// Set output of logs to file
-	defer logf.Close()
-	log.SetOutput(logf)
-	log.Printf("🤖 [%s] Bot started at %s", vnum, time.Now())
+	log.Info().Msgf("🤖 [%s] Bot started with vips version %s", vnum, bimg.VipsVersion)
 
 	// Load (or create) config
 	conf := config.LoadConfig()
@@ -76,13 +91,12 @@ func main() {
 	// Setup anti-spam
 	Spam := spam.AntiSpam{}
 	Spam.ChatBannedUntilTimestamp = make(map[int64]int64)
-	Spam.ChatConversionLog = make(map[int64]spam.ConversionLog)
+	Spam.ChatConversionLog = make(map[int64]*spam.ConversionLog)
 	Spam.ChatBanned = make(map[int64]bool)
 	Spam.Rules = make(map[string]int64)
 
 	// Add rules
 	Spam.Rules["ConversionsPerHour"] = conf.ConversionRate
-	Spam.Rules["TimeBetweenCommands"] = 1
 
 	// Create bot
 	bot, err := tb.NewBot(tb.Settings{
@@ -91,16 +105,20 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatal("Error starting bot:", err)
+		log.Fatal().Err(err).Msg("Error starting bot")
 		return
 	}
 
-	// https://pkg.go.dev/github.com/h2non/bimg@v1.1.6#VipsCacheSetMax
-	// 16 seems to limit memory usage to under 300 MB
-	bimg.VipsCacheSetMax(16)
+	/* https://pkg.go.dev/github.com/h2non/bimg@v1.1.6#VipsCacheSetMax.
+	16 seems to limit memory usage to under 300 MB
+
+	default value is 500
+	https://github.com/h2non/bimg/blob/a8f6d5fa08deb38350e173bf5c4445ee9bc2baaf/vips.go#L31 */
+	bimg.VipsCacheSetMax(64)
 
 	// Setup messageSender
-	sendQueue := queue.SendQueue{MessagesPerSecond: 10.0}
+	sendQueue := queue.SendQueue{}
+	sendQueue.Limiter = rate.NewLimiter(20, 2)
 
 	// Define session: used to throw around structs that are needed frequently
 	session := config.Session{
@@ -120,10 +138,21 @@ func main() {
 	// Setup bot
 	bots.SetupBot(&session)
 
-	// Dump statistics to disk once every 30 minutes, clean spam struct every 60 minutes
+	// Create scheduler
 	scheduler := gocron.NewScheduler(time.UTC)
-	scheduler.Every(30).Minutes().Do(config.DumpConfig, conf)
-	scheduler.Every(60).Minutes().Do(spam.CleanConversionLogs, &Spam)
+
+	// Save config (and stats) every half-hour
+	_, err = scheduler.Every(30).Minutes().Do(config.DumpConfig, conf)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Starting config saver job failed")
+	}
+
+	// Clean conversion logs every hour
+	_, err = scheduler.Every(60).Minutes().Do(spam.CleanConversionLogs, &Spam)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Starting conversion log cleaner job failed")
+	}
+
 	scheduler.StartAsync()
 
 	session.Bot.Start()
