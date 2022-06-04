@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"tg-resize-sticker-images/config"
 	"tg-resize-sticker-images/queue"
 	"tg-resize-sticker-images/resize"
@@ -12,6 +11,8 @@ import (
 	"tg-resize-sticker-images/stats"
 	"tg-resize-sticker-images/templates"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	tb "gopkg.in/telebot.v3"
 )
@@ -32,11 +33,12 @@ func sendDocument(session *config.Session, msg *queue.Message) {
 	_, err := doc.Send(session.Bot, msg.Recipient, &sendOpts)
 
 	if err != nil {
-		log.Println("⚠️ Error sending message in sendDocument (notifying user):", err)
+		log.Error().Err(err).Msg("⚠️ Error sending message in sendDocument (notifying user)")
 
 		_, err := session.Bot.Send(msg.Recipient, "🚦 Error sending resized image! Please try again.")
+
 		if err != nil {
-			log.Println("\tUnable to notify user about send failure:", err)
+			log.Error().Err(err).Msg("Unable to notify user about send failure")
 		}
 
 		return
@@ -64,7 +66,7 @@ func getBytes(session *config.Session, message *tb.Message, mediaType string) (*
 	file, err := session.Bot.File(tbFile)
 
 	if err != nil {
-		log.Println("⚠️ Error running GetFile: ", err)
+		log.Error().Err(err).Msg("⚠️ Error running GetFile")
 		return &bytes.Buffer{}, err
 	}
 
@@ -73,18 +75,31 @@ func getBytes(session *config.Session, message *tb.Message, mediaType string) (*
 	_, err = io.Copy(&imgBuf, file)
 
 	if err != nil {
-		log.Println("⚠️ Error copying image to buffer:", err)
+		log.Error().Err(err).Msg("⚠️ Error copying image to buffer")
 		return &bytes.Buffer{}, err
 	}
 
 	return &imgBuf, nil
 }
 
+// Handles incoming media, i.e. those caught by tb.OnPhoto, tb.OnDocument etc.
 func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType string) {
-	/* Handles incoming media, i.e. those caught by tb.OnPhoto, tb.OnDocument etc. */
 	// Anti-spam: return if user is not allowed to convert
 	if !spam.ConversionPreHandler(session.Spam, message.Sender.ID) {
-		log.Println("🚦 Chat", message.Sender.ID, "is ratelimited")
+		log.Debug().Msgf("🚦 Chat %d is ratelimited", message.Sender.ID)
+
+		// Extract pointer to user's spam log
+		userSpam := session.Spam.ChatConversionLog[message.Sender.ID]
+
+		if userSpam.RateLimitMessageSent {
+			/* Check if the message has already been sent recently
+			This simply avoids spamming the same rate-limit message 50 times. */
+			if time.Since(userSpam.RateLimitMessageSentAt) < time.Minute {
+				log.Debug().Msgf("Rate-limit message for %d has been already sent recently, not sending again",
+					message.Sender.ID)
+				return
+			}
+		}
 
 		// Construct message
 		msg := queue.Message{
@@ -96,24 +111,36 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 
 		// Add to send queue
 		session.Queue.AddToQueue(&msg)
+
+		// Update the RateLimitMessageSent flag + time sent at
+		session.Spam.ChatReceivedRateLimitMessage(message.Sender.ID)
+
 		return
 	}
 
 	// Download
 	imgBytes, err := getBytes(session, message, mediaType)
+
 	if err != nil {
-		// Construct message
+		var caption string
+		if err == tb.ErrTooLarge {
+			caption = "File is too large! Try compressing it first."
+		} else {
+			caption = "Error downloading image! Please try again."
+		}
+
+		// Construct error message
 		msg := queue.Message{
 			Recipient: message.Sender,
 			Bytes:     nil,
-			Caption:   "⚠️ Error downloading image! Please try again.",
+			Caption:   fmt.Sprintf("⚠️ %s", caption),
 		}
 
 		// Add to send queue
 		session.Queue.AddToQueue(&msg)
 
 		// Log error
-		log.Printf("Error downloading image: %s\n", err.Error())
+		log.Error().Err(err).Msgf("Error downloading image (caption='%s')", caption)
 		return
 	}
 
@@ -126,7 +153,7 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 
 	// Update stat for count of unique chats in a goroutine
 	if message.Sender.ID != session.LastUser {
-		stats.UpdateUniqueStat(&message.Sender.ID, session.Config)
+		stats.UpdateUniqueStat(message.Sender.ID, session.Config)
 		stats.UpdateLastUserId(session, message.Sender.ID)
 	}
 }
