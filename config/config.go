@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,11 +14,12 @@ import (
 	"tg-resize-sticker-images/spam"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	tb "gopkg.in/telebot.v3"
 )
 
+// A superstruct to simplify passing around other structs
 type Session struct {
-	/* A superstruct to simplify passing around other structs */
 	Bot      *tb.Bot          // Bot this session runs
 	Config   *Config          // Configuration for session
 	Spam     *spam.AntiSpam   // Anti-spam struct for session
@@ -40,12 +40,12 @@ type Config struct {
 	Mutex           sync.Mutex // Mutex to avoid concurrent writes
 }
 
+// Dumps config to disk
 func DumpConfig(config *Config) {
-	// Dumps config to disk
 	jsonbytes, err := json.MarshalIndent(config, "", "\t")
 
 	if err != nil {
-		log.Printf("⚠️ Error marshaling json! Err: %s\n", err)
+		log.Error().Err(err).Msg("⚠️ Error marshaling json")
 	}
 
 	wd, _ := os.Getwd()
@@ -54,22 +54,20 @@ func DumpConfig(config *Config) {
 	file, err := os.Create(configf)
 
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("Creating configuration file failed")
 	}
 
 	// Write, close
 	_, err = file.Write(jsonbytes)
 	if err != nil {
-		log.Printf("⚠️ Error writing config to disk! Err: %s\n", err)
+		log.Error().Err(err).Msg("⚠️ Error writing config to disk")
 	}
 
 	file.Close()
 }
 
+// Loads the config, returns a pointer to it
 func LoadConfig() *Config {
-	/* Loads the config, returns a pointer to it */
-
 	// Get log file's path relative to working dir
 	wd, _ := os.Getwd()
 	configPath := filepath.Join(wd, "config")
@@ -90,7 +88,7 @@ func LoadConfig() *Config {
 		config := Config{
 			Token:           botToken,
 			Owner:           0,
-			ConversionRate:  60,
+			ConversionRate:  100,
 			StatConverted:   0,
 			StatUniqueChats: 0,
 			StatStarted:     time.Now().Unix(),
@@ -106,8 +104,7 @@ func LoadConfig() *Config {
 	// Config exists: load
 	fbytes, err := ioutil.ReadFile(configf)
 	if err != nil {
-		log.Println("⚠️ Error reading config file:", err)
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("⚠️ Error reading config file")
 	}
 
 	// New config struct
@@ -116,8 +113,7 @@ func LoadConfig() *Config {
 	// Unmarshal into our config struct
 	err = json.Unmarshal(fbytes, &config)
 	if err != nil {
-		log.Println("⚠️ Error unmarshaling config json: ", err)
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("⚠️ Error unmarshaling config json")
 	}
 
 	// Set startup time

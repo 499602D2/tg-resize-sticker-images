@@ -13,7 +13,7 @@ import (
 
 func TestResizeFunction(t *testing.T) {
 	// Set vips operating parameters, defer shutdown
-	bimg.VipsCacheSetMax(16)
+	bimg.VipsCacheSetMax(250)
 	defer bimg.Shutdown()
 
 	// Folder containing large test images
@@ -62,7 +62,7 @@ func TestResizeFunction(t *testing.T) {
 				t.Fail()
 			}
 
-			fmt.Printf("[newResizeFunc] Successfully resized image %s\n", file.Name())
+			fmt.Printf("Successfully resized image %s\n", file.Name())
 
 			// Memory stats
 			vipsMem := bimg.VipsMemory()

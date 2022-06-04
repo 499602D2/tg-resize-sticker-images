@@ -3,25 +3,23 @@ package resize
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"math"
 	"tg-resize-sticker-images/queue"
 
 	"github.com/h2non/bimg"
+	"github.com/rs/zerolog/log"
 	"github.com/yusukebe/go-pngquant"
 )
 
+// Resizes an image in a byte buffer using libvips through bimg.
 func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
-	/*
-		Resizes an image in a byte buffer using libvips through bimg.
-	*/
-	// build image from buffer
+	// Build image from buffer
 	image := bimg.NewImage(imgBuffer.Bytes())
 
 	// Read image dimensions for resize (int)
 	size, err := image.Size()
 	if err != nil {
-		log.Println("Error reading image size:", err)
+		log.Error().Err(err).Msg("Error reading image size")
 
 		return &queue.Message{
 			Recipient: nil,
@@ -66,7 +64,7 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 
 	if err != nil {
 		// If conversion process fails, notify user
-		log.Println("Error processing image!", err.Error())
+		log.Error().Err(err).Msg("Error processing image")
 
 		return &queue.Message{
 			Recipient: nil,
@@ -80,7 +78,7 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 		imageBytes, err = pngquant.CompressBytes(imageBytes, "6")
 		if err != nil {
 			// If compression process fails, notify user
-			log.Println("Error compressing image:", err.Error())
+			log.Error().Err(err).Msg("Error compressing image")
 
 			return &queue.Message{
 				Recipient: nil,
@@ -98,7 +96,7 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 
 	// Notify user if the image was not compressed enough
 	if len(imageBytes)/1024 >= 512 {
-		log.Println("⚠️ Image compression failed! Buffer length (KB):", len(imageBytes)/1024)
+		log.Warn().Msgf("⚠️ Image compression failed, buffer length %d KB", len(imageBytes)/1024)
 		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
 	}
 
