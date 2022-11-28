@@ -12,6 +12,7 @@ import (
 	"tg-resize-sticker-images/templates"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	tb "gopkg.in/telebot.v3"
@@ -23,7 +24,7 @@ func sendDocument(session *config.Session, msg *queue.Message) {
 		File:     tb.FromReader(bytes.NewReader(*msg.Bytes)),
 		Caption:  msg.Caption,
 		MIME:     "image/png",
-		FileName: fmt.Sprintf("resized-image-%d.png", time.Now().Unix()),
+		FileName: fmt.Sprintf("resized-%s.png", uuid.NewString()[0:8]),
 	}
 
 	// Disable notifications
@@ -66,7 +67,7 @@ func getBytes(session *config.Session, message *tb.Message, mediaType string) (*
 	file, err := session.Bot.File(tbFile)
 
 	if err != nil {
-		log.Error().Err(err).Msg("⚠️ Error running GetFile")
+		log.Error().Err(err).Msg("Error running GetFile")
 		return &bytes.Buffer{}, err
 	}
 
@@ -75,7 +76,7 @@ func getBytes(session *config.Session, message *tb.Message, mediaType string) (*
 	_, err = io.Copy(&imgBuf, file)
 
 	if err != nil {
-		log.Error().Err(err).Msg("⚠️ Error copying image to buffer")
+		log.Error().Err(err).Msg("Error copying image to buffer")
 		return &bytes.Buffer{}, err
 	}
 
@@ -126,7 +127,7 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 		if err == tb.ErrTooLarge {
 			caption = "File is too large! Try compressing it first."
 		} else {
-			caption = "Error downloading image! Please try again."
+			caption = "Could not download image: use a different image, or try again later."
 		}
 
 		// Construct error message
