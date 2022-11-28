@@ -30,7 +30,7 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 
 	// Scaling factor and options for processing
 	options := bimg.Options{
-		Type:          bimg.ImageType(3), // ImageType(3) == PNG
+		Type:          bimg.PNG,          // ImageType(3) == PNG
 		StripMetadata: true,              // Strip metadata
 		Gravity:       bimg.GravitySmart, // SmartCrop
 		Force:         true,              // Force resize to go through
@@ -38,24 +38,18 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 
 	// Get values for new height and width
 	if size.Width >= size.Height {
-		// Width >= height: set width to 512, scale height appropriately.
-		scalingFactor := 512.0 / float64(size.Width)
-
-		// If image needs to be enlarged, set
-		options.Enlarge = scalingFactor > 1.0
+		// If scaling factor is greater than 1.0, the image needs to be enlarged
+		options.Enlarge = (512.0 / float64(size.Width)) > 1.0
 
 		// Set options for width and height
 		options.Width = 512
-		options.Height = int(math.Round(float64(size.Height) * scalingFactor))
+		options.Height = int(math.Round(float64(size.Height) * (512.0 / float64(size.Width))))
 	} else {
-		// Height >= width: set height to 512, scale width appropriately
-		scalingFactor := 512.0 / float64(size.Height)
-
-		// If image needs to be enlarged, set
-		options.Enlarge = scalingFactor > 1.0
+		// If scaling factor is greater than 1.0, the image needs to be enlarged
+		options.Enlarge = (512.0 / float64(size.Height)) > 1.0
 
 		// Set options for width and height
-		options.Width = int(math.Round(float64(size.Width) * scalingFactor))
+		options.Width = int(math.Round(float64(size.Width) * (512.0 / float64(size.Height))))
 		options.Height = 512
 	}
 
@@ -73,7 +67,7 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 		}, err
 	}
 
-	// Compress image if size is too large
+	// Compress image if size is over 512 kibibytes
 	if len(imageBytes)/1024 >= 512 {
 		imageBytes, err = pngquant.CompressBytes(imageBytes, "6")
 		if err != nil {
