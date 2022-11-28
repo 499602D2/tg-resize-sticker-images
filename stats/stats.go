@@ -102,11 +102,13 @@ func BuildStatsMsg(conf *config.Config, aspam *spam.AntiSpam, vnum string) (stri
 		vnum, gitUrl,
 	)
 
-	// Construct keyboard for refresh functionality
-	kb := [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh statistics", Data: "stats/refresh"}}}
-
 	// Add Markdown parsing for a pretty link embed + keyboard
-	sopts := tb.SendOptions{ParseMode: "Markdown", ReplyMarkup: &tb.ReplyMarkup{InlineKeyboard: kb}}
+	sopts := tb.SendOptions{
+		ParseMode: "Markdown",
+		ReplyMarkup: &tb.ReplyMarkup{
+			InlineKeyboard: [][]tb.InlineButton{{tb.InlineButton{Text: "🔄 Refresh statistics", Data: "stats/refresh"}}},
+		},
+	}
 
 	return msg, sopts
 }
