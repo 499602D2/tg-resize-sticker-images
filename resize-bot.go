@@ -53,7 +53,7 @@ func setupSignalHandler(session *config.Session) {
 
 func main() {
 	// Get commit the bot is running
-	vnum := fmt.Sprintf("1.10.0 (%s)", GitSHA[0:7])
+	vnum := fmt.Sprintf("1.10.1 (%s)", GitSHA[0:7])
 
 	// Log to file
 	wd, _ := os.Getwd()
@@ -89,11 +89,12 @@ func main() {
 	conf := config.LoadConfig()
 
 	// Setup anti-spam
-	Spam := spam.AntiSpam{}
-	Spam.ChatBannedUntilTimestamp = make(map[int64]int64)
-	Spam.ChatConversionLog = make(map[int64]*spam.ConversionLog)
-	Spam.ChatBanned = make(map[int64]bool)
-	Spam.Rules = make(map[string]int64)
+	Spam := spam.AntiSpam{
+		ChatBannedUntilTimestamp: make(map[int64]int64),
+		ChatConversionLog:        make(map[int64]*spam.ConversionLog),
+		ChatBanned:               make(map[int64]bool),
+		Rules:                    make(map[string]int64),
+	}
 
 	// Add rules
 	Spam.Rules["ConversionsPerHour"] = conf.ConversionRate
@@ -117,8 +118,9 @@ func main() {
 	bimg.VipsCacheSetMax(64)
 
 	// Setup messageSender
-	sendQueue := queue.SendQueue{}
-	sendQueue.Limiter = rate.NewLimiter(20, 2)
+	sendQueue := queue.SendQueue{
+		Limiter: rate.NewLimiter(20, 2),
+	}
 
 	// Define session: used to throw around structs that are needed frequently
 	session := config.Session{
@@ -147,13 +149,15 @@ func main() {
 		log.Fatal().Err(err).Msg("Starting config saver job failed")
 	}
 
-	// Clean conversion logs every hour
+	// Clean conversion logs once an hour
 	_, err = scheduler.Every(60).Minutes().Do(spam.CleanConversionLogs, &Spam)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Starting conversion log cleaner job failed")
 	}
 
+	// Run scheduler
 	scheduler.StartAsync()
 
+	// Start Telegram bot instance
 	session.Bot.Start()
 }

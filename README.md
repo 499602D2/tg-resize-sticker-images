@@ -104,5 +104,7 @@ A sample configuration file looks as follows:
 
 	1.9.0 (2022.03.04): improve resize flow and fix errors when processing small images
 
-	1.10.10 (2022.06.04): simplified and improved spam management, logging and message changes, code cleanup
+	1.10.0 (2022.06.04): simplified and improved spam management, logging and message changes, code cleanup
+
+	1.10.1 (2022.11.28): bump dependencies, use UUID for images, minor code cleanup
 </details>
