@@ -106,5 +106,5 @@ A sample configuration file looks as follows:
 
 	1.10.0 (2022.06.04): simplified and improved spam management, logging and message changes, code cleanup
 
-	1.10.1 (2022.11.28): bump dependencies, use UUID for images, minor code cleanup
+	1.10.1 (2022.12.17): bump dependencies, use UUID for images, minor code cleanup
 </details>
