@@ -56,26 +56,14 @@ func SpamInspectionString(spam *AntiSpam) string {
 	chatCount := len(spam.ChatConversionLog)
 
 	// Track some insights
-	totalConversions := 0     // Total conversion across all chats
-	maxConversionCount := 0   // Most per-chat conversions in the last 60 minutes
-	onceBannedChats := 0      // How many chats have been banned at some point
-	currentlyBannedChats := 0 // How many chats are currently banned
+	totalConversions := 0   // Total conversion across all chats
+	maxConversionCount := 0 // Most per-chat conversions in the last 60 minutes
 
 	// Iterate over all chats that are tracked
 	for chat := range spam.ChatConversionLog {
 		totalConversions += spam.ChatConversionLog[chat].ConversionCount
 		if spam.ChatConversionLog[chat].ConversionCount > maxConversionCount {
 			maxConversionCount = spam.ChatConversionLog[chat].ConversionCount
-		}
-
-		// Check if chat is, or has been, banned
-		banStatus := spam.ChatBannedUntilTimestamp[chat]
-
-		if banStatus != 0 {
-			onceBannedChats++
-			if banStatus == 1 {
-				currentlyBannedChats++
-			}
 		}
 	}
 
