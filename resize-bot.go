@@ -1,5 +1,5 @@
 /*
-golang rewrite of the telegram sticker resize bot python program.
+Golang rewrite of the telegram sticker resize bot Python program.
 */
 
 package main
@@ -53,7 +53,7 @@ func setupSignalHandler(session *config.Session) {
 
 func main() {
 	// Get commit the bot is running
-	vnum := fmt.Sprintf("1.10.1 (%s)", GitSHA[0:7])
+	vnum := fmt.Sprintf("2.10.2 (%s)", GitSHA[0:7])
 
 	// Log to file
 	wd, _ := os.Getwd()
