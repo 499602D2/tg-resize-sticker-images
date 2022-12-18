@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -102,7 +101,7 @@ func LoadConfig() *Config {
 	}
 
 	// Config exists: load
-	fbytes, err := ioutil.ReadFile(configf)
+	fbytes, err := os.ReadFile(configf)
 	if err != nil {
 		log.Fatal().Err(err).Msg("⚠️ Error reading config file")
 	}

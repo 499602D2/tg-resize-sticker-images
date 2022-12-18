@@ -3,7 +3,6 @@ package resize
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +21,7 @@ func TestResizeFunction(t *testing.T) {
 	}
 
 	for _, imageFolder := range folders {
-		files, err := ioutil.ReadDir(imageFolder)
+		files, err := os.ReadDir(imageFolder)
 		if err != nil {
 			t.Log("Error opening test image dir:", err)
 			t.Fail()
