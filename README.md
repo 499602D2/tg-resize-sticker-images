@@ -131,4 +131,6 @@ Version 1.3.3 ("1.3.7") is the last Python version of the bot, and can be browse
 	2.10.1 (2022.12.17): bump dependencies, use UUID for images, minor code cleanup
 
 	2.10.2 (2022.12.18): correct major version, remove use of depreacted io/ioutil
+
+	2.11.0 (2023.06.10): 100x100 px conversion mode, trailing-day statistics, bump dependencies
 </details>
