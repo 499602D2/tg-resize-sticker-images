@@ -9,10 +9,45 @@ import (
 	"github.com/h2non/bimg"
 	"github.com/rs/zerolog/log"
 	"github.com/yusukebe/go-pngquant"
+	tb "gopkg.in/telebot.v3"
 )
 
+func emojiResizeOptions(options bimg.Options, size bimg.ImageSize) bimg.Options {
+	// Force to 100x100 px
+	options.Width = 100
+	options.Height = 100
+
+	// Set enlarge based on original dimensions
+	if (size.Width < 100) || (size.Height < 100) {
+		options.Enlarge = true
+	}
+
+	return options
+}
+
+func stickerResizeOptions(options bimg.Options, size bimg.ImageSize) bimg.Options {
+	// Get values for new height and width
+	if size.Width >= size.Height {
+		// If scaling factor is greater than 1.0, the image needs to be enlarged
+		options.Enlarge = (512.0 / float64(size.Width)) > 1.0
+
+		// Set options for width and height
+		options.Width = 512
+		options.Height = int(math.Round(float64(size.Height) * (512.0 / float64(size.Width))))
+	} else {
+		// If scaling factor is greater than 1.0, the image needs to be enlarged
+		options.Enlarge = (512.0 / float64(size.Height)) > 1.0
+
+		// Set options for width and height
+		options.Width = int(math.Round(float64(size.Width) * (512.0 / float64(size.Height))))
+		options.Height = 512
+	}
+
+	return options
+}
+
 // Resizes an image in a byte buffer using libvips through bimg.
-func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
+func ResizeImage(imgBuffer *bytes.Buffer, inEmojiMode bool) (*queue.Message, error) {
 	// Build image from buffer
 	image := bimg.NewImage(imgBuffer.Bytes())
 
@@ -36,21 +71,28 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 		Force:         true,              // Force resize to go through
 	}
 
-	// Get values for new height and width
-	if size.Width >= size.Height {
-		// If scaling factor is greater than 1.0, the image needs to be enlarged
-		options.Enlarge = (512.0 / float64(size.Width)) > 1.0
+	// Set mode based on inEmojiMode
+	mode := "sticker"
+	if inEmojiMode {
+		mode = "emoji"
+	}
 
-		// Set options for width and height
-		options.Width = 512
-		options.Height = int(math.Round(float64(size.Height) * (512.0 / float64(size.Width))))
-	} else {
-		// If scaling factor is greater than 1.0, the image needs to be enlarged
-		options.Enlarge = (512.0 / float64(size.Height)) > 1.0
+	switch mode {
+	case "sticker":
+		// Resize options for sticker mode
+		options = stickerResizeOptions(options, size)
 
-		// Set options for width and height
-		options.Width = int(math.Round(float64(size.Width) * (512.0 / float64(size.Height))))
-		options.Height = 512
+	case "emoji":
+		// Resize options for emoji mode
+		options = emojiResizeOptions(options, size)
+
+	default:
+		// If mode is not 'sticker' or 'emoji', return error
+		return &queue.Message{
+			Recipient: nil,
+			Bytes:     nil,
+			Caption:   fmt.Sprintf("⚠️ Invalid mode '%s'!", mode),
+		}, fmt.Errorf("Invalid mode '%s'!", mode)
 	}
 
 	// Process image in one shot (resize, PNG conversion)
@@ -67,9 +109,10 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 		}, err
 	}
 
-	// Compress image if size is over 512 kibibytes
 	if len(imageBytes)/1024 >= 512 {
+		// Compress image if size is over 512 kibibytes
 		imageBytes, err = pngquant.CompressBytes(imageBytes, "6")
+
 		if err != nil {
 			// If compression process fails, notify user
 			log.Error().Err(err).Msg("Error compressing image")
@@ -84,20 +127,48 @@ func ResizeImage(imgBuffer *bytes.Buffer) (*queue.Message, error) {
 
 	// Construct the caption
 	imgCaption := fmt.Sprintf(
-		"🖼 Here's your sticker-ready image (%dx%d)! Forward this to @Stickers.",
-		options.Width, options.Height,
+		"🖼 Here's your %s-ready image (%dx%d)! Forward this to @Stickers.",
+		mode, options.Width, options.Height,
 	)
 
 	// Notify user if the image was not compressed enough
+	// TODO add a "recompress" method
 	if len(imageBytes)/1024 >= 512 {
 		log.Warn().Msgf("⚠️ Image compression failed, buffer length %d KB", len(imageBytes)/1024)
 		imgCaption += "\n\n⚠️ Image compression failed (≥512 KB): you must manually compress the image!"
 	}
 
-	// Notify user if image was upscaled
-	if options.Enlarge {
-		imgCaption += "\n\n⚠️ Image upscaled! Quality may have been lost: consider using a larger image."
+	inlineBtnText := ""
+	switch mode {
+	case "sticker":
+		// Warn user if image was upscaled
+		if options.Enlarge {
+			imgCaption += "\n\n⚠️ Image upscaled! Quality may have been lost: consider using a larger image."
+		}
+
+		// User is in sticker mode: add text to inline button
+		inlineBtnText = "Switch to emoji-mode"
+	case "emoji":
+		// Warn user if image was upscaled or distorted
+		if (options.Enlarge) && (size.Width != size.Height) {
+			imgCaption += "\n\n⚠️ Image distorted and upscaled! Consider using a larger, square image."
+		} else if options.Enlarge {
+			imgCaption += "\n\n⚠️ Image upscaled! Quality may have been lost: consider using a larger image."
+		} else if size.Width != size.Height {
+			imgCaption += "\n\n⚠️ Image distorted! Consider using a square image."
+		}
+
+		// User is in emoji mode: add text to inline button
+		inlineBtnText = "Switch to sticker-mode"
 	}
 
-	return &queue.Message{Recipient: nil, Bytes: &imageBytes, Caption: imgCaption}, nil
+	// Add send-options to change mode
+	sopts := tb.SendOptions{
+		ParseMode: "Markdown",
+		ReplyMarkup: &tb.ReplyMarkup{
+			InlineKeyboard: [][]tb.InlineButton{{tb.InlineButton{Text: inlineBtnText, Data: "mode/switch"}}},
+		},
+	}
+
+	return &queue.Message{Recipient: nil, Bytes: &imageBytes, Caption: imgCaption, Sopts: sopts}, nil
 }

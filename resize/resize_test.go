@@ -15,6 +15,9 @@ func TestResizeFunction(t *testing.T) {
 	bimg.VipsCacheSetMax(250)
 	defer bimg.Shutdown()
 
+	// Set default mode to "sticker"
+	mode := false
+
 	// Folder containing large test images
 	folders := []string{
 		"test-images-large/",
@@ -54,7 +57,7 @@ func TestResizeFunction(t *testing.T) {
 			}
 
 			// Resize
-			_, err = ResizeImage(&imgBuf)
+			_, err = ResizeImage(&imgBuf, mode)
 
 			if err != nil {
 				t.Logf("Error resizing image (%s): %s", file.Name(), err)

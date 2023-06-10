@@ -139,7 +139,7 @@ func SetupBot(session *config.Session) {
 		session.Spam.RunUserLimiter(message.Sender.ID, 1)
 
 		// Get stats message
-		caption, sopts := stats.BuildStatsMsg(session.Config, aspam, session.Vnum)
+		caption, sopts := stats.BuildStatsMsg(session.Config, session.Daily, session.Vnum)
 
 		// Construct message
 		msg := queue.Message{Recipient: message.Sender, Bytes: nil, Caption: caption, Sopts: sopts}
@@ -149,6 +149,35 @@ func SetupBot(session *config.Session) {
 
 		if message.Sender.ID != session.Config.Owner {
 			log.Info().Msgf("📊 %d requested to view stats", message.Sender.ID)
+		}
+
+		return nil
+	})
+
+	// Command handler for /stats
+	bot.Handle("/mode", func(c tb.Context) error {
+		// Pointer to message
+		message := c.Message()
+
+		// Run rate-limiter
+		session.Spam.RunUserLimiter(message.Sender.ID, 1)
+
+		// Toggle conversion mode
+		_, _, confirmation, _ := session.Spam.ToggleConversionMode(message.Sender.ID)
+
+		// Send user confirmation of mode change
+		msg := queue.Message{
+			Recipient: message.Sender,
+			Bytes:     nil,
+			Caption:   confirmation,
+			Sopts:     tb.SendOptions{ParseMode: "Markdown"},
+		}
+
+		// Add to send queue
+		session.Queue.AddToQueue(&msg)
+
+		if message.Sender.ID != session.Config.Owner {
+			log.Info().Msgf("🪛 %d requested to change mode", message.Sender.ID)
 		}
 
 		return nil
@@ -182,7 +211,7 @@ func SetupBot(session *config.Session) {
 			session.Spam.RunUserLimiter(cb.Sender.ID, 1)
 
 			// Create updated message
-			msg, sopts := stats.BuildStatsMsg(session.Config, aspam, session.Vnum)
+			msg, sopts := stats.BuildStatsMsg(session.Config, session.Daily, session.Vnum)
 
 			// Edit message with new content if the messages aren't identical
 			_, err := bot.Edit(cb.Message, msg, &sopts)
@@ -206,6 +235,44 @@ func SetupBot(session *config.Session) {
 
 			if err != nil {
 				log.Error().Err(err).Msg("Error responding to callback")
+			}
+
+		} else if cb.Data == "mode/switch" {
+			// Run rate-limiter
+			session.Spam.RunUserLimiter(cb.Sender.ID, 1)
+
+			// Switch mode
+			_, cb_string, confirmation, editableSendOptions := session.Spam.ToggleConversionMode(cb.Sender.ID)
+
+			// Callback response
+			resp := tb.CallbackResponse{
+				CallbackID: cb.ID,
+				Text:       cb_string,
+				ShowAlert:  false,
+			}
+
+			err := bot.Respond(cb, &resp)
+
+			if err != nil {
+				log.Error().Err(err).Msg("Error responding to callback")
+			}
+
+			// Send message to user confirming the mode change
+			msg := queue.Message{
+				Recipient: cb.Sender,
+				Bytes:     nil,
+				Caption:   confirmation,
+				Sopts:     tb.SendOptions{ParseMode: "Markdown"},
+			}
+
+			// Add to send queue
+			session.Queue.AddToQueue(&msg)
+
+			// Edit the message to reflect the new mode
+			_, err = bot.EditCaption(cb.Message, cb.Message.Caption, &editableSendOptions)
+
+			if err != nil {
+				log.Error().Err(err).Msg("Error editing message in /mode handler")
 			}
 
 		} else {

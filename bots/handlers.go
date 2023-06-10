@@ -28,7 +28,8 @@ func sendDocument(session *config.Session, msg *queue.Message) {
 	}
 
 	// Disable notifications
-	sendOpts := tb.SendOptions{DisableNotification: true}
+	sendOpts := msg.Sopts
+	sendOpts.DisableNotification = true
 
 	// Send
 	_, err := doc.Send(session.Bot, msg.Recipient, &sendOpts)
@@ -47,6 +48,9 @@ func sendDocument(session *config.Session, msg *queue.Message) {
 
 	// If message is successfully sent, +1 conversion
 	stats.StatsPlusOneConversion(session.Config)
+
+	// Add to trailing daily stats
+	session.Daily.AddConversionByUser(msg.Recipient.ID)
 }
 
 func getBytes(session *config.Session, message *tb.Message, mediaType string) (*bytes.Buffer, error) {
@@ -146,7 +150,7 @@ func handleIncomingMedia(session *config.Session, message *tb.Message, mediaType
 	}
 
 	// Resize, set message recipient
-	msg, _ := resize.ResizeImage(imgBytes)
+	msg, _ := resize.ResizeImage(imgBytes, session.Spam.GetConversionMode(message.Sender.ID))
 	msg.Recipient = message.Sender
 
 	// Add to send queue: regardless of resize outcome, the message is sent
