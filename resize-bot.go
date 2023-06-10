@@ -15,6 +15,7 @@ import (
 
 	"tg-resize-sticker-images/bots"
 	"tg-resize-sticker-images/config"
+	"tg-resize-sticker-images/daily"
 	"tg-resize-sticker-images/queue"
 	"tg-resize-sticker-images/spam"
 
@@ -122,12 +123,16 @@ func main() {
 		Limiter: rate.NewLimiter(20, 2),
 	}
 
+	// Create daily, trailing in-memory statistics
+	daily_stats := daily.NewConversionStatistics()
+
 	// Define session: used to throw around structs that are needed frequently
 	session := config.Session{
 		Bot:    bot,
 		Config: conf,
 		Spam:   &Spam,
 		Queue:  &sendQueue,
+		Daily:  daily_stats,
 		Vnum:   vnum,
 	}
 

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"tg-resize-sticker-images/daily"
 	"tg-resize-sticker-images/queue"
 	"tg-resize-sticker-images/spam"
 	"time"
@@ -19,13 +20,14 @@ import (
 
 // A superstruct to simplify passing around other structs
 type Session struct {
-	Bot      *tb.Bot          // Bot this session runs
-	Config   *Config          // Configuration for session
-	Spam     *spam.AntiSpam   // Anti-spam struct for session
-	Queue    *queue.SendQueue // Message send queue for session
-	LastUser int64            // Keep track of the last user to convert an image
-	Vnum     string           // Version number
-	Mutex    sync.Mutex       // Avoid concurrent writes
+	Bot      *tb.Bot                     // Bot this session runs
+	Config   *Config                     // Configuration for session
+	Spam     *spam.AntiSpam              // Anti-spam struct for session
+	Queue    *queue.SendQueue            // Message send queue for session
+	Daily    *daily.ConversionStatistics // Daily stats
+	LastUser int64                       // Keep track of the last user to convert an image
+	Vnum     string                      // Version number
+	Mutex    sync.Mutex                  // Avoid concurrent writes
 }
 
 type Config struct {
