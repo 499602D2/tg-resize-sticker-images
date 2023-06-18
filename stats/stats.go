@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"tg-resize-sticker-images/config"
-	"tg-resize-sticker-images/spam"
+	"tg-resize-sticker-images/daily"
 
 	"github.com/dustin/go-humanize"
 	"github.com/hako/durafmt"
@@ -77,7 +77,7 @@ func UpdateUniqueStat(uid int64, conf *config.Config) {
 	conf.StatUniqueChats++
 }
 
-func BuildStatsMsg(conf *config.Config, aspam *spam.AntiSpam, vnum string) (string, tb.SendOptions) {
+func BuildStatsMsg(conf *config.Config, stats *daily.ConversionStatistics, vnum string) (string, tb.SendOptions) {
 	// Main stats
 	msg := fmt.Sprintf(
 		"📊 *Overall statistics*\n"+
@@ -94,8 +94,8 @@ func BuildStatsMsg(conf *config.Config, aspam *spam.AntiSpam, vnum string) (stri
 		humanize.Comma(int64(conf.StatConverted)),
 		humanize.Comma(int64(conf.StatUniqueChats)),
 
-		// Trailing-hour statistics
-		spam.SpamInspectionString(aspam),
+		// Trailing-day statistics
+		stats.StatisticsString(),
 
 		// Server info
 		durafmt.Parse(time.Since(time.Unix(conf.StatStarted, 0))).LimitFirstN(2),

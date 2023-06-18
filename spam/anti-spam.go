@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/time/rate"
+	tb "gopkg.in/telebot.v3"
 )
 
 // In-memory struct keeping track of banned chats and per-chat activity
@@ -28,6 +29,7 @@ type ConversionLog struct {
 	UserLimiter            rate.Limiter
 	RateLimitMessageSent   bool // Has the user been notified that they're rate-limited?
 	RateLimitMessageSentAt time.Time
+	InEmojiMode            bool // Defaults to false, i.e. sticker mode
 }
 
 // Enforce a token-based rate-limiter on a per-chat basis
@@ -48,6 +50,51 @@ func (spam *AntiSpam) RunUserLimiter(id int64, tokens int) {
 	}
 
 	spam.ChatConversionLog[id].LastCommandSendTime = time.Now()
+}
+
+// Get the current conversion mode the user is in
+func (spam *AntiSpam) GetConversionMode(id int64) bool {
+	if spam.ChatConversionLog[id] == nil {
+		// This should never occur due to ConversionPreHandler
+		return false
+	}
+
+	return spam.ChatConversionLog[id].InEmojiMode
+}
+
+// Toggle the conversion mode the user is in
+func (spam *AntiSpam) ToggleConversionMode(id int64) (bool, string, string, tb.SendOptions) {
+	if spam.ChatConversionLog[id] == nil {
+		// Initialize the ConversionLog struct
+		spam.ChatConversionLog[id] = &ConversionLog{
+			UserLimiter: *rate.NewLimiter(1, 1),
+			InEmojiMode: false,
+		}
+	} else {
+		spam.ChatConversionLog[id].InEmojiMode = !spam.ChatConversionLog[id].InEmojiMode
+	}
+
+	// Callback string based on new mode
+	var cb_string, confirmation, btnText string
+	if spam.ChatConversionLog[id].InEmojiMode {
+		cb_string = "✨ Emoji mode (100x100 px)"
+		confirmation = "✨ *Now in emoji-mode!* Call /mode any time to switch back."
+		btnText = "Switch to sticker-mode"
+	} else {
+		cb_string = "🖼️ Sticker mode (512 px)"
+		confirmation = "🖼️ *Now in sticker mode!* Call /mode any time to switch back."
+		btnText = "Switch to emoji-mode"
+	}
+
+	// New send-options for the confirmation message
+	sopts := tb.SendOptions{
+		ParseMode: "Markdown",
+		ReplyMarkup: &tb.ReplyMarkup{
+			InlineKeyboard: [][]tb.InlineButton{{tb.InlineButton{Text: btnText, Data: "mode/switch"}}},
+		},
+	}
+
+	return spam.ChatConversionLog[id].InEmojiMode, cb_string, confirmation, sopts
 }
 
 // A simple function that prints some insights of the AntiSpam struct
